@@ -19,6 +19,7 @@ import { countPendingEscalations } from "@/lib/agent-questions";
 import { loadOwnAgents } from "@/lib/dashboard-overview";
 import { AgentsDock, type DockAgent } from "@/components/agents-dock";
 import { AGENTS_DOCK_HEIGHT } from "@/lib/agents-dock";
+import { appVersionLabel } from "@/lib/deployed-version";
 import { agentActivity, agentEarnings } from "@/lib/points/agent-earnings";
 
 export default async function AppLayout({
@@ -147,7 +148,7 @@ export default async function AppLayout({
       </div>
       {/* The page's foot stays clear of the agents strip, so everything scrolls above it. */}
       <div aria-hidden="true" className="hidden shrink-0 lg:block" style={{ height: AGENTS_DOCK_HEIGHT }} />
-      <AgentsDock agents={dockAgents} />
+      <AgentsDock agents={dockAgents} defaultProjectSlug={defaultProjectSlug} version={appVersionLabel()} />
       <FocusMainOnNavigate />
       <KeyboardShortcuts
         enabled={shortcutsEnabled}

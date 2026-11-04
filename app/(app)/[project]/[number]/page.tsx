@@ -35,7 +35,7 @@ import { SHARE_IMAGE } from "@/lib/share-image";
 import {
   statusLabels,
 } from "@/lib/labels";
-import { ActivityTimeline, type ActivityEntry } from "@/components/activity-timeline";
+import { ActivityTimeline, issueStepActivities, type ActivityEntry } from "@/components/activity-timeline";
 import { type AgentDecision } from "@/components/issue-agent-activity";
 import { IssueProgressReport } from "@/components/issue-progress-report";
 import { IssueStageProvider } from "@/components/issue-stage-context";
@@ -54,6 +54,7 @@ import {
 import { IssueEscalations, type TicketEscalation } from "@/components/issue-escalations";
 import { listBugEscalations } from "@/lib/agent-questions";
 import { IssueBidsPanel, type BidEntryView } from "@/components/issue-bids";
+import { BidButton } from "@/components/bid-button";
 import { awardingAgentOf } from "@/lib/bid-award-permission";
 import { bidHistoryEntries } from "@/lib/agent-api/bid";
 import { markAtCapacity } from "@/lib/agent-api/capacity";
@@ -64,7 +65,7 @@ import { DeliveriesPanel, MergeReviewsPanel, TestVerdictsPanel, type DeliveryVie
 import { Badge } from "@/components/ui/badge";
 import { VoteButton } from "@/components/vote-button";
 import { IssueConfirmationsPanel, type ConfirmationBlock, type ConfirmationsData } from "@/components/issue-confirmations";
-import { CONFIRMATION_SUMMARY_MAX_CHARS, listConfirmations } from "@/lib/agent-api/confirmations";
+import { CONFIRMATION_SUMMARY_MAX_CHARS, listConfirmations, takesConfirmations } from "@/lib/agent-api/confirmations";
 import { DisputeAwardDialog, type DisputeRole } from "@/components/dispute-award-dialog";
 import { AttachmentList, type AttachmentView } from "@/components/attachment-list";
 import { ChooseRedesignButton } from "@/components/choose-redesign-button";
@@ -120,6 +121,8 @@ import {
 } from "./issue-ui";
 import "./issue-detail.css";
 import { stateLabel } from "@/lib/labels";
+import { IssueRewardPanel } from "@/components/issue-reward-panel";
+import { rewardEstimatesFor } from "@/lib/agent-api/reward-estimates";
 
 type BugPageProps = {
   params: Promise<{ project: string; number: string }>;
@@ -421,19 +424,21 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
   // has it (its claims), then every bid it took (#issue-bids).
   const pastConfirmation = bug.substatus !== "requires_confirmation";
   // Bids come in from the start, while it awaits confirmation too.
-  const [hold, bidList, awardClaim] = await Promise.all([
+  const [hold, bidList, claimHistory] = await Promise.all([
     pastConfirmation ? loadOptional<IssueHold | null>("holder", null, () => currentHold(bug.id)) : Promise.resolve(null as IssueHold | null),
     // While Open, an open bid whose bidder is at the project's capacity says so (#bidder-capacity).
     loadOptional<BidEntryView[]>("bids", [], async () => {
       const entries = await bidHistoryEntries({ id: bug.id, areaId: bug.areaId ?? null });
       return bug.status === "open" ? markAtCapacity({ tenantId: bug.tenantId, projectId: bug.projectId }, entries) : entries;
     }),
-    // The timeline's Award step (#issue-timeline): the newest offer or claim, held or since released.
-    loadOptional<AwardStepView | null>("award", null, async () => {
-      const claim = await prisma.issueClaim.findFirst({
+    // Every offer or claim, newest first: the timeline's Award step (#issue-timeline) is the
+    // newest, held or since released; the Activity panel lists each award and release.
+    loadOptional<(AwardStepView & { id: string })[]>("award", [], async () => {
+      const claims = await prisma.issueClaim.findMany({
         where: { bugId: bug.id, OR: [{ offeredAt: { not: null } }, { claimedAt: { not: null } }] },
         orderBy: [{ createdAt: "desc" }, { id: "desc" }],
         select: {
+          id: true,
           offeredAt: true,
           claimedAt: true,
           releasedAt: true,
@@ -441,11 +446,17 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
           beneficiary: { select: { name: true } },
         },
       });
-      return claim
-        ? { agentName: claim.agent.name, personName: claim.beneficiary.name, offeredAt: claim.offeredAt, claimedAt: claim.claimedAt, releasedAt: claim.releasedAt }
-        : null;
+      return claims.map((claim) => ({
+        id: claim.id,
+        agentName: claim.agent.name,
+        personName: claim.beneficiary.name,
+        offeredAt: claim.offeredAt,
+        claimedAt: claim.claimedAt,
+        releasedAt: claim.releasedAt,
+      }));
     }),
   ]);
+  const awardClaim: AwardStepView | null = claimHistory[0] ?? null;
 
   const [users, voterSummary, activities, activityCount, comments, latestStatusChange, attachments, lastRevision, agentDecisions, escalations] =
     await Promise.all([
@@ -684,6 +695,23 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
     (bug.substatus === "open" || bug.substatus === "requires_confirmation") && !bug.isDeleted
       ? await loadOptional("award permission", false, async () => Boolean(await awardingAgentOf(user.id, bug.tenantId)))
       : false;
+  // One-click bid: while the issue takes bids, nobody is working on it, and you have no open bid on it,
+  // the Bids step shows a Bid button with your agents to choose from.
+  const bidAgents =
+    (bug.substatus === "open" || bug.substatus === "requires_confirmation") && !bug.isDeleted
+      ? await loadOptional("bid agents", [] as { id: string; name: string }[], async () => {
+          const [workedOn, myOpenBid] = await Promise.all([
+            prisma.issueClaim.count({ where: { bugId: bug.id, releasedAt: null, status: "active" } }),
+            prisma.issueBid.count({ where: { bugId: bug.id, beneficiaryUserId: user.id, withdrawnAt: null, awardedAt: null } }),
+          ]);
+          if (workedOn > 0 || myOpenBid > 0) return [];
+          return prisma.agent.findMany({
+            where: { tenantId: bug.tenantId, ownerUserId: user.id, revokedAt: null },
+            orderBy: { name: "asc" },
+            select: { id: true, name: true },
+          });
+        })
+      : [];
   // #603: the tenant's active agents, offered in the comment @mention list
   // as "Mark's Claude · Mark Essien" alongside people.
   const mentionAgents = canTriage
@@ -711,12 +739,19 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
 
   // #idea-table: the idea this issue was converted from.
   const sourceIdea = bug.idea;
-  // #issue-confirmations: at Requires confirmation the issue takes confirmation
-  // entries; afterwards they stay, read-only, under the comments.
-  const confirming = !bug.isDeleted && bug.substatus === "requires_confirmation";
-  const confirmationsData: ConfirmationsData | null = await loadOptional<ConfirmationsData | null>("confirmations", null, () =>
-    listConfirmations({ tenantId: bug.tenantId, projectId: bug.projectId }, bug.id),
+  // #rewards: what solving it pays, and every estimate behind it (planning poker).
+  const [rewardRow, rewardEstimates] = await Promise.all([
+    prisma.bug.findUnique({ where: { id: bug.id }, select: { reward: true, rewardFixedAt: true } }),
+    loadOptional<Awaited<ReturnType<typeof rewardEstimatesFor>>>("reward estimates", [], () => rewardEstimatesFor(bug.id)),
+  ]);
+  const confirmationsData = await loadOptional<(ConfirmationsData & { confirmed?: boolean }) | null>("confirmations", null, () =>
+    // #confirmation-files: other confirmers' files show once the viewer has confirmed (admins always).
+    listConfirmations({ tenantId: bug.tenantId, projectId: bug.projectId }, bug.id, { userId: user.id, admin: canChooseRedesign }),
   );
+  // #issue-confirmations: at Requires confirmation the issue takes confirmation
+  // entries, and so does one whose work started before it was confirmed, until
+  // it is (`takesConfirmations`); afterwards they stay, read-only, under the comments.
+  const confirming = !bug.isDeleted && takesConfirmations(bug.substatus, confirmationsData?.confirmed ?? pastConfirmation);
   // Anyone may confirm their own issue (#confirmation-weights): it counts 1.
   const confirmationBlock: ConfirmationBlock = null;
   // #close-reasons: the issue's owner may withdraw it while it is not closed or live.
@@ -780,7 +815,7 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
   const [deliveryList, testVerdictList, mergeReviewList] = pastConfirmation
     ? await Promise.all([
         loadOptional<DeliveryView[]>("deliveries", [], () => deliveryEntries(reviewBug)),
-        loadOptional<TestVerdictView[]>("test verdicts", [], () => testVerdictEntries(reviewBug)),
+        loadOptional<TestVerdictView[]>("test verdicts", [], () => testVerdictEntries(reviewBug, { userId: user.id, admin: canChooseRedesign })),
         loadOptional<MergeReviewView[]>("merge reviews", [], () => mergeReviewEntries(reviewBug)),
       ])
     : [[] as DeliveryView[], [] as TestVerdictView[], [] as MergeReviewView[]];
@@ -984,6 +1019,24 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
         />
       </div>
     ) : null;
+
+  // The Activity panel: the issue's activity rows and its step entries (confirmations, bids,
+  // awards, deliveries, judgements, merge reviews), newest first, from the data loaded above.
+  const stepActivities = issueStepActivities({
+    confirmations: confirmationsData?.entries ?? [],
+    bids: bidList,
+    claims: claimHistory,
+    deliveries: deliveryList,
+    testVerdicts: testVerdictList,
+    mergeReviews: mergeReviewList,
+  });
+  // When older activity rows aren't loaded, a step entry from before the oldest loaded row
+  // would show out of place; it still counts in the heading, with the rows not loaded.
+  const oldestLoadedActivity = activities.length < activityCount ? activities.at(-1)?.createdAt : undefined;
+  const shownActivities: ActivityEntry[] = [
+    ...activities,
+    ...stepActivities.filter((entry) => !oldestLoadedActivity || entry.createdAt.getTime() >= new Date(oldestLoadedActivity).getTime()),
+  ].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime() || b.id.localeCompare(a.id));
 
   return (
     <div className="issue-detail-scope flex flex-col gap-5 pb-10">
@@ -1254,9 +1307,10 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
                         <AwardStep award={awardClaim} />
                       </TimelineStep>
                     ) : null}
-                    {pastConfirmation || bidList.length > 0 ? (
+                    {pastConfirmation || bidList.length > 0 || bidAgents.length > 0 ? (
                       <TimelineStep>
                         <IssueBidsPanel
+                          bidAction={bidAgents.length > 0 ? <BidButton bugId={bug.id} agents={bidAgents} /> : undefined}
                           bids={bidList}
                           at={firstAt(bidList)}
                           collapsed={bug.status !== "open"}
@@ -1393,6 +1447,17 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
               </form>
             ) : null}
           </section>
+          {/* #rewards: the reward, your estimate, and everyone's. */}
+          {rewardRow ? (
+            <IssueRewardPanel
+              bugId={bug.id}
+              reward={Number(rewardRow.reward)}
+              fixed={Boolean(rewardRow.rewardFixedAt)}
+              estimates={rewardEstimates}
+              viewerId={user.id}
+              canEstimate={!bug.isDeleted && bug.status !== "closed"}
+            />
+          ) : null}
 
           {/* People, compact: one row each, label on the left. */}
           <section className="flex flex-col gap-2 rounded-[20px] border border-zk-border bg-zk-surface px-4 py-3.5">
@@ -1458,8 +1523,8 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
           />
 
           <ActivityTimeline
-            activities={[...activities].reverse()}
-            totalCount={activityCount}
+            activities={[...shownActivities].reverse()}
+            totalCount={activityCount + stepActivities.length}
           />
         </aside>
       </div>

@@ -54,6 +54,7 @@ Keep the subject imperative and under ~72 characters. One logical change per com
 5. Never force-push (`git push --force`, `-f`, or `--force-with-lease`)
 6. Do not commit secrets (`.env`, keys, credentials)
 7. Verify once before pushing (`pnpm verify:ready`, then `pnpm verify:recheck` after fixes; see below)
+8. Raise the app version: every PR increments `version` in `package.json` (the patch number for a normal change, `0.1.1` → `0.1.2`). The app shows it in the footer, and CI's "Version raised" step fails a PR whose version isn't higher than `main`'s. If `main` moved on while your PR was open, take the next number after `main`'s.
 
 ## Verification before pushing
 

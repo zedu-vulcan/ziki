@@ -449,6 +449,19 @@ body:has([data-app-shell]) {
   }
 }
 
+/* The site/code icon after the panel flies into it (components/project-links.tsx). */
+@keyframes zk-links-arrive {
+  0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(37, 99, 235, 0.45); }
+  40% { transform: scale(1.18); }
+  100% { transform: scale(1); box-shadow: 0 0 0 10px rgba(37, 99, 235, 0); }
+}
+
+/* The typing cursor while Claude writes up an idea (components/claude-working.tsx). */
+@keyframes zk-caret {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
 /* The agents dock (#agents-dock): a working agent bobs, a waiting one waves, an idle one breathes. */
 @keyframes zk-agent-work {
   0%, 100% { transform: translateY(0) rotate(0deg); }

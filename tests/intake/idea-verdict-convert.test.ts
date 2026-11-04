@@ -9,6 +9,7 @@ const db = vi.hoisted(() => ({
   idea: { update: vi.fn(), findUniqueOrThrow: vi.fn() },
   bug: { create: vi.fn() },
   attachment: { updateMany: vi.fn() },
+  issueStake: { updateMany: vi.fn(), findMany: vi.fn(async () => []), update: vi.fn() },
   pointEntry: { createMany: vi.fn() },
   projectWorkflow: { findUnique: vi.fn() },
 }));
@@ -93,10 +94,10 @@ describe("giveIdeaVerdict", () => {
     }));
     expect(db.idea.update).toHaveBeenCalledWith({ where: { id: "i1" }, data: { score: 1 } });
     expect(db.pointEntry.createMany).toHaveBeenCalledWith({
-      data: [expect.objectContaining({ userId: "bob", role: "idea", points: 1, bugId: null, ideaId: "i1", sourceKey: "idea:i1:bob" })],
+      data: [expect.objectContaining({ userId: "bob", role: "idea", points: 0.01, bugId: null, ideaId: "i1", sourceKey: "idea:i1:bob" })],
       skipDuplicates: true,
     });
-    expect(result).toMatchObject({ ideaScore: 1, ideaThreshold: 3, convertible: false, replaced: false, pointsAwarded: 1 });
+    expect(result).toMatchObject({ ideaScore: 1, ideaThreshold: 3, convertible: false, replaced: false, pointsAwarded: 0.01 });
     // An idea's event names its project: there is no issue for the trigger to read it from.
     expect(publish).toHaveBeenCalledWith(db, expect.objectContaining({
       type: "idea.verdict",

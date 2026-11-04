@@ -9,6 +9,8 @@ import { consumeAgentBudget, agentBudgetExceededResponse } from "@/lib/agents/ra
 import { withAgentBudgetHeaders, type AgentBudgetQuota } from "@/lib/agents/rate-budget-headers";
 import { commentSchema, statusSchema, substatusSchema, commentLabel } from "@/lib/validations/issue";
 import { parsePlatformFilter, platformFilterWhere } from "@/lib/platform-filter";
+import { platformSelect, withPlatform, type PlatformView } from "@/lib/platforms";
+import { rewardView } from "@/lib/agent-api/reward-estimates";
 import { boundSearchTerm, escapeSearchQuery } from "@/lib/search";
 import { parseProjectAreaFilter, projectAreaFilterWhere } from "@/lib/project-area-filter";
 import { currentHold } from "@/lib/issue-holders";
@@ -157,6 +159,10 @@ export const issueSelect = {
   pullRequestUrl: true,
   pullRequestHeadSha: true,
   area: { select: { id: true, name: true, slug: true } },
+  // #platforms: returned as `platform: { id, slug, name }` (withImportance renames it).
+  category: { select: platformSelect },
+  // #rewards: what solving it pays, in $, and how far the estimating has got.
+  reward: true, rewardEstimateCount: true, rewardFixedAt: true,
 } satisfies Prisma.BugSelect;
 
 /**
@@ -166,7 +172,9 @@ export const issueSelect = {
  */
 export function requireKnownFilter(name: "platform" | "area", raw: string | null, parsed: string | null): string | null {
   if (raw?.trim() && parsed === null) {
-    throw new IssueApiError(422, `Unknown ${name} id "${raw.trim()}". Use an id from this project, or "none".`);
+    throw new IssueApiError(422, name === "platform"
+      ? `Unknown platform "${raw.trim()}". Use a slug from GET /api/v1/platforms, or "none".`
+      : `Unknown ${name} id "${raw.trim()}". Use an id from this project, or "none".`);
   }
   return parsed;
 }
@@ -186,7 +194,7 @@ export async function listAgentIssues(scope: Scope, params: URLSearchParams) {
   }
   const platforms = await prisma.category.findMany({
     where: { tenantId: scope.tenantId },
-    select: { id: true, name: true },
+    select: { id: true, name: true, slug: true },
   });
   const requestedArea = params.get("area");
   const areas = requestedArea
@@ -218,10 +226,17 @@ export async function listAgentIssues(scope: Scope, params: URLSearchParams) {
   return toPage(rows.map(withImportance), limit);
 }
 
-/** #importance: an issue's importance, read from `Bug.voteCount`, which keeps its column name. */
-export function withImportance<T extends { voteCount: number }>(row: T): Omit<T, "voteCount"> & { importance: number } {
-  const { voteCount, ...rest } = row;
-  return { ...rest, importance: voteCount };
+/**
+ * #importance: an issue's importance, read from `Bug.voteCount`, which keeps its
+ * column name; and #platforms: its `category` relation as `platform`.
+ */
+export function withImportance<T extends { voteCount: number; category?: PlatformView | null; reward?: { toNumber(): number } | number; rewardEstimateCount?: number; rewardFixedAt?: Date | null }>(
+  row: T,
+): Omit<T, "voteCount" | "category" | "reward" | "rewardEstimateCount" | "rewardFixedAt"> & { importance: number; platform: PlatformView | null; reward: ReturnType<typeof rewardView> | null } {
+  const { voteCount, reward, rewardEstimateCount, rewardFixedAt, ...rest } = withPlatform(row);
+  // #rewards: the reward in $, with how many estimates it averages and whether it is fixed.
+  const rewardJson = reward === undefined ? null : rewardView({ reward, rewardEstimateCount: rewardEstimateCount ?? 0, rewardFixedAt: rewardFixedAt ?? null });
+  return { ...rest, importance: voteCount, reward: rewardJson } as Omit<T, "voteCount" | "category" | "reward" | "rewardEstimateCount" | "rewardFixedAt"> & { importance: number; platform: PlatformView | null; reward: ReturnType<typeof rewardView> | null };
 }
 
 /** A comment's upvotes (#comment-votes) as `votes`, in place of Prisma's `_count`. */

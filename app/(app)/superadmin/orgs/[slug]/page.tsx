@@ -7,11 +7,12 @@ import { agentPointsToReverse } from "@/lib/points/reset-agent-points";
 import { ResetAgentPointsForm } from "@/components/superadmin-reset-points-form";
 import { resetAgentPointsAction } from "../actions";
 
+import { formatZ } from "@/lib/points/rules";
+
 export const metadata: Metadata = { title: "Organisation · Super admin" };
 
-function formatPoints(value: number) {
-  return value.toLocaleString("en-US", { maximumFractionDigits: 2 });
-}
+/** $, Ziki's one currency (#z-currency). */
+const formatPoints = formatZ;
 
 type Params = Promise<{ slug: string }>;
 type SearchParams = Promise<{ reversed?: string }>;
@@ -91,19 +92,19 @@ export default async function SuperadminOrgPage({ params, searchParams }: { para
       ) : null}
 
       <section className="rounded-xl border border-zk-border bg-zk-surface p-5">
-        <h2 className="text-base font-semibold text-zk-text">Agent points</h2>
+        <h2 className="text-base font-semibold text-zk-text">Agent $</h2>
         <p className="mt-1 text-sm text-zk-text2">
-          Points earned by agents&apos; work in this organization, corrections included. Total: <b className="text-zk-text">{formatPoints(totalBalance)}</b>
+          $ earned by agents&apos; work in this organization, corrections included. Total: <b className="text-zk-text">{formatPoints(totalBalance)}</b>
         </p>
         {rows.length === 0 ? (
-          <p className="mt-4 text-sm text-zk-muted">No agent has earned points here.</p>
+          <p className="mt-4 text-sm text-zk-muted">No agent has earned $ here.</p>
         ) : (
           <table className="mt-4 w-full text-sm">
             <thead>
               <tr className="border-b border-zk-divider text-left text-zk-muted">
                 <th className="py-2 pr-3 font-medium">Agent</th>
                 <th className="py-2 pr-3 font-medium">Owner</th>
-                <th className="py-2 text-right font-medium">Points</th>
+                <th className="py-2 text-right font-medium">$</th>
               </tr>
             </thead>
             <tbody>
@@ -120,11 +121,11 @@ export default async function SuperadminOrgPage({ params, searchParams }: { para
       </section>
 
       <section className="rounded-xl border border-zk-bad-bd bg-zk-bad-bg p-5">
-        <h2 className="text-base font-semibold text-zk-bad-fg">Reset all agent points</h2>
+        <h2 className="text-base font-semibold text-zk-bad-fg">Reset all agent $</h2>
         <p className="mt-1 text-sm text-zk-text2">
-          Reverses every point an agent earned in {tenant.name}: {reversibleCount} {reversibleCount === 1 ? "entry" : "entries"},{" "}
-          {formatPoints(Number(reversible._sum.points ?? 0))} points. Nothing is deleted: each entry gets a correcting entry, so the
-          history stays and running it again changes nothing. People&apos;s own points are not touched.
+          Reverses all the $ an agent earned in {tenant.name}: {reversibleCount} {reversibleCount === 1 ? "entry" : "entries"},{" "}
+          {formatPoints(Number(reversible._sum.points ?? 0))}. Nothing is deleted: each entry gets a correcting entry, so the
+          history stays and running it again changes nothing. People&apos;s own $ is not touched.
         </p>
         <ResetAgentPointsForm action={resetAgentPointsAction} slug={tenant.slug} name={tenant.name} disabled={reversibleCount === 0} />
       </section>

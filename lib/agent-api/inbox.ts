@@ -99,6 +99,22 @@ export async function inboxRecipients(db: Db, event: InboxEvent): Promise<InboxD
       const agentId = await claimAgentId(db, payload.claimId);
       return agentId ? [{ agentId, kind: "claim" }] : [];
     }
+    // #stakes: agents with open bids hear when the issue is staked, so they can counter;
+    // the contenders hear of a contest; a stake's agent hears how it ended.
+    case "issue.staked": {
+      const bugId = text(payload.issueId);
+      if (!bugId) return [];
+      const bids = await db.issueBid.findMany({ where: { bugId, withdrawnAt: null, awardedAt: null }, select: { agentId: true } });
+      return bids.filter((bid) => bid.agentId !== event.actorAgentId).map((bid) => ({ agentId: bid.agentId, kind: "claim" as const }));
+    }
+    case "issue.stake_contested": {
+      const ids = Array.isArray(payload.agentIds) ? payload.agentIds.filter((value): value is string => typeof value === "string") : [];
+      return ids.map((agentId) => ({ agentId, kind: "claim" as const }));
+    }
+    case "issue.stake_ended": {
+      const agentId = text(payload.agentId);
+      return agentId ? [{ agentId, kind: "claim" }] : [];
+    }
     case "issue.bid_awarded": {
       const agentId = await claimAgentId(db, payload.claimId);
       return agentId ? [{ agentId, kind: "approval" }] : [];

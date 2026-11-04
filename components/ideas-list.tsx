@@ -4,6 +4,8 @@ import { IdeaRowStatus } from "@/components/issue-row-status";
 import { IdeaPathChips } from "@/components/idea-path";
 import { LocalTime } from "@/components/local-time";
 import { ideaPath } from "@/lib/project-paths";
+import { SortHeader } from "@/components/sort-header";
+import { DEFAULT_IDEA_SORT, IDEA_SORT_COOKIE } from "@/lib/list-sort";
 
 export type IdeaListRow = {
   id: string;
@@ -36,12 +38,16 @@ export type IdeaListRow = {
  * have their own numbers and pages, take verdicts instead of votes, and
  * leave this list once an agent converts them.
  */
-export function IdeasList({ slug, ideas, empty, welcome }: {
+export function IdeasList({ slug, ideas, empty, welcome, filters, sort = DEFAULT_IDEA_SORT }: {
   slug: string;
   ideas: IdeaListRow[];
+  /** The list's sort, for the sortable column headers (#column-sort). */
+  sort?: string;
   empty?: string;
   /** No open ideas yet: what Ziki is for, and a box to type the first one in. */
   welcome?: React.ReactNode;
+  /** The section's status filters, shown after "Status" in the header row. */
+  filters?: React.ReactNode;
 }) {
   if (ideas.length === 0 && welcome) return <>{welcome}</>;
   if (ideas.length === 0) {
@@ -59,10 +65,20 @@ export function IdeasList({ slug, ideas, empty, welcome }: {
       <div className="issues-table relative">
         <div>
           <div className="issues-table-heading">
-            <span className="w-[52px]">Score</span>
-            <span className="min-w-0 flex-1">Idea</span>
-            <span className="hidden w-24 shrink-0 md:block">Last update</span>
-            <span className="issues-status-cell" style={{ width: 264, flexBasis: 264 }}>Status</span>
+            {/* Each column sorts the list on the server; the choice is kept in a cookie (#column-sort). */}
+            <span className="w-[52px]">
+              <SortHeader label="Score" current={sort} first="score" second="score_asc" cookie={IDEA_SORT_COOKIE} />
+            </span>
+            <span className="min-w-0 flex-1">
+              <SortHeader label="Idea" current={sort} first="title" second="title_desc" firstDescending={false} cookie={IDEA_SORT_COOKIE} />
+            </span>
+            <span className="hidden w-24 shrink-0 md:block">
+              <SortHeader label="Last update" current={sort} first="updated" second="updated_asc" cookie={IDEA_SORT_COOKIE} />
+            </span>
+            <span className="issues-status-cell justify-end" style={{ width: 264, flexBasis: 264 }}>
+              {/* The column needs no label: its status filters say what it holds. */}
+              {filters ?? <span className="sr-only">Status</span>}
+            </span>
           </div>
           <ul>
             {ideas.map((idea, index) => (

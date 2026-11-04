@@ -21,6 +21,7 @@ import { buildDraftKey, saveDraftToStorage } from "@/lib/form-drafts";
 import { reportedFromLine } from "@/lib/reported-from";
 import { DraftBanner } from "@/components/draft-banner";
 import { useConfirm } from "@/components/ui/confirm-dialog";
+import { ClaudeWorking } from "@/components/claude-working";
 import { initialDescription, templateSwitch } from "@/lib/issue-templates";
 
 /** Must match the title limit enforced by createBugSchema. */
@@ -441,6 +442,8 @@ export function CreateIssueForm({
           {pending ? "Creating…" : isUploading ? "Uploading…" : "Create issue"}
         </Button>
       )}
+      {/* While the idea goes to Claude to be written up, show the work happening. */}
+      {pending ? <ClaudeWorking className="mt-3" /> : null}
     </form>
   );
 }

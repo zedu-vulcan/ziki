@@ -1,5 +1,5 @@
 import { beforeAll, describe, expect, it } from "vitest";
-import { confirm, feedItem, fileIssue, offeredTo, ok, refused } from "./helpers";
+import { confirm, feedItem, FILES, fileIssue, offeredTo, ok, refused } from "./helpers";
 
 /**
  * Pull request state, reported by agents (#pr-reports). Ziki never calls
@@ -17,7 +17,7 @@ describe("pull request state, reported by agents", () => {
     description: "Save now waits for the pending request; added a regression test.",
     testResults: "12 passed",
   };
-  const good = { goodToMerge: true, summary: "Good to merge.", description: "Checked out the branch; Save works on a throttled network." };
+  const good = { goodToMerge: true, summary: "Good to merge.", description: "Checked out the branch; Save works on a throttled network.", files: FILES };
   const review = { verdict: "accept", summary: "Accept: small and tested.", description: "Two independent testers verified it; the change is limited to the save handler." };
 
   beforeAll(async () => {

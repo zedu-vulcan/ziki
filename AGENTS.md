@@ -266,6 +266,8 @@ Rules for the scenarios themselves:
 
 Conventional Commits: `type(ENDOR-xxx): summary` when ticketed, else `type: summary`. See CONTRIBUTING.md.
 
+**Every PR raises the app version.** Increment `version` in `package.json` (the patch number for a normal change, `0.1.1` → `0.1.2`); the app's footer shows it. CI's "Version raised" step fails a PR whose version isn't higher than `main`'s. If `main` moved on meanwhile, take the next number after `main`'s.
+
 <!-- BEGIN:nextjs-agent-rules -->
 
 ## This is NOT the Next.js you know

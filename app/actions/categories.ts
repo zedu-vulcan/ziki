@@ -7,6 +7,7 @@ import { expireTag, TAGS } from "@/lib/cache-tags";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth-helpers";
 import { platformScopeFor } from "@/lib/categories";
+import { uniquePlatformSlug } from "@/lib/platforms";
 import { categorySchema } from "@/lib/validations/issue";
 import { categoryChangedSummary } from "@/lib/activity-log";
 
@@ -58,6 +59,8 @@ export async function createCategoryAction(
       data: {
         tenantId: scope.tenantId,
         name: normalizedName,
+        // #platforms: the slug agents name it by; kept if the platform is renamed.
+        slug: await uniquePlatformSlug(prisma, scope.tenantId, normalizedName),
         isActive: true,
       },
     });

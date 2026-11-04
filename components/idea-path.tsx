@@ -97,8 +97,8 @@ export function IdeaPathChips({ ideaId, approvedByMe = false, score, threshold, 
         ? `At Idea, score ${scoreText}; rejection advised`
         : `At Idea, score ${scoreText}; next In progress, then Done`;
   return (
-    // Two steps (→ Rejected, → Archived) sit at the right of the Status column, like Approve.
-    <div className={`flex items-center gap-[3px] ${steps.length === 2 ? "w-full justify-end" : ""}`} role="img" aria-label={name} title={name} data-testid="idea-path">
+    // Every path sits at the right of the Status column, like Approve and the filters above it.
+    <div className="flex w-full items-center justify-end gap-[3px]" role="img" aria-label={name} title={name} data-testid="idea-path">
       {steps.map((step, index) => (
         <Fragment key={step.label}>
           {index > 0 ? <Arrow small /> : null}

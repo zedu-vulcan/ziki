@@ -77,6 +77,7 @@ async function loadAgentProfile(
       revokedAt: true,
       createdAt: true,
       ownerUserId: true,
+      reputation: true,
       owner: { select: { name: true, email: true } },
       apiKeys: { select: { lastUsedAt: true, revokedAt: true, project: { select: { name: true } } } },
     },
@@ -123,6 +124,7 @@ async function loadAgentProfile(
       lastActiveAt: lastUsed ? new Date(lastUsed) : null,
       projects,
       counts: { filed, claims, comments },
+      reputation: agent.reputation,
     },
     activity: events.map((event) => ({
       id: event.id,

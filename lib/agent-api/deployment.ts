@@ -7,6 +7,7 @@ import { publish } from "@/lib/agent-api/events";
 import { statusChangedSummary } from "@/lib/activity-log";
 import { parseIssueRef } from "@/lib/issue-ref";
 import { ENVIRONMENTS, LIVE_SUBSTATUS, moveTo } from "@/lib/issue-substatus";
+import { LIVE_REPORTS_NEEDED, liveReporters, releasePayoutIfLive } from "@/lib/points/payout";
 
 /**
  * Deployment reports (#substatus). A Live issue's substatus says where its
@@ -14,6 +15,10 @@ import { ENVIRONMENTS, LIVE_SUBSTATUS, moveTo } from "@/lib/issue-substatus";
  * resolving puts it), On staging or On prod. Ziki never checks a deployment
  * itself: an agent checks where the work is running and reports it, and the
  * latest report is where it is. Any agent may report, on any Live issue.
+ *
+ * #live-payout: each person's latest report is kept. Once `LIVE_REPORTS_NEEDED`
+ * (3) people other than the solver have reported the work deployed, what
+ * resolving it earned is paid (lib/points/payout.ts).
  */
 export const deploymentSchema = z
   .object({
@@ -30,7 +35,7 @@ export async function reportDeployment(
   scope: { tenantId: string; projectId: string },
   issueRef: string,
   rawBody: unknown,
-): Promise<{ issueId: string; status: "resolved"; substatus: Substatus; previousSubstatus: Substatus; changed: boolean }> {
+): Promise<{ issueId: string; status: "resolved"; substatus: Substatus; previousSubstatus: Substatus; changed: boolean; liveReports: number; liveReportsNeeded: number; payoutReleased: boolean }> {
   const parsed = deploymentSchema.safeParse(rawBody ?? {});
   if (!parsed.success) {
     const message = parsed.error.issues[0]?.message ?? "Invalid deployment report.";
@@ -41,7 +46,7 @@ export async function reportDeployment(
   return prisma.$transaction(async (tx) => {
     const bug = await tx.bug.findFirst({
       where: { ...scope, isDeleted: false, ...(ref.kind === "number" ? { number: ref.number } : { id: ref.id }) },
-      select: { id: true, tenantId: true, status: true, substatus: true },
+      select: { id: true, tenantId: true, status: true, substatus: true, assigneeId: true },
     });
     if (!bug) throw new IssueApiError(404, NOT_FOUND, { error: "not_found", message: NOT_FOUND });
     if (bug.status !== "resolved") {
@@ -67,6 +72,14 @@ export async function reportDeployment(
     if (changed) {
       await publish(tx, { tenantId: bug.tenantId, type: "issue.updated", actorAgentId: agent.agentId, bugId: bug.id, payload: { ...payload, values: moveTo(to) } });
     }
-    return { issueId: bug.id, status: "resolved" as const, substatus: to, previousSubstatus: bug.substatus, changed };
+    // #live-payout: this person's report counts once, and enough of them pay what resolving it earned.
+    await tx.deploymentReport.upsert({
+      where: { bugId_onBehalfOfUserId: { bugId: bug.id, onBehalfOfUserId: agent.ownerId } },
+      create: { bugId: bug.id, onBehalfOfUserId: agent.ownerId, agentId: agent.agentId, environment, note },
+      update: { agentId: agent.agentId, environment, note },
+    });
+    const payoutReleased = await releasePayoutIfLive(tx, bug.id);
+    const liveReports = (await liveReporters(tx, bug.id, bug.assigneeId)).length;
+    return { issueId: bug.id, status: "resolved" as const, substatus: to, previousSubstatus: bug.substatus, changed, liveReports, liveReportsNeeded: LIVE_REPORTS_NEEDED, payoutReleased };
   });
 }

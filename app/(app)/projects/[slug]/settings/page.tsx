@@ -31,7 +31,7 @@ export default async function ProjectSettingsPage({
   const project = await prisma.project.findFirst({
     where: { tenantId, slug },
     select: {
-      id: true, slug: true, name: true, goal: true, repoUrl: true, stagingUrl: true,
+      id: true, slug: true, name: true, goal: true, repoUrl: true, stagingUrl: true, siteUrl: true,
       githubInstallationId: true, rewardConfig: true, workflow: true,
     },
   });

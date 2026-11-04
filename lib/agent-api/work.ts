@@ -33,12 +33,14 @@ const RECLAIM_WHY: Record<StaleHold["kind"], string> = {
   overdue: "Its work was not delivered by the deadline.",
   silent: "Its agent stopped checking in and has delivered nothing.",
 };
-import { COMMENT_UPVOTE_POINTS, IDEA_CONTRIBUTION_POINTS } from "@/lib/points/rules";
+import { COMMENT_UPVOTE_POINTS, formatZ, IDEA_CONTRIBUTION_POINTS, REWARD_MAX, REWARD_MAX_ESTIMATES, REWARD_MIN } from "@/lib/points/rules";
 import { commentPreview } from "@/lib/activity-log";
 import { absoluteUrl } from "@/lib/site-url";
 import { openAgentRequests } from "@/lib/agent-requests";
 import { issuePath } from "@/lib/issue-ref";
 import { ideaPath } from "@/lib/project-paths";
+import { listPlatforms } from "@/lib/platforms";
+import { contestsIn, liveStakesOf, STAKE_REFRESH_MS, sweepStakes } from "@/lib/agent-api/stakes";
 import { eventStreamBus, TENANT_WRITE, type StreamEvent } from "@/lib/events/stream-bus";
 
 /**
@@ -74,6 +76,10 @@ export type WorkKind =
   | "confirm_issue"
   | "open_issue"
   | "vote_importance"
+  | "categorize"
+  | "estimate_reward"
+  | "refresh_stake"
+  | "vote_stake"
   | "report_deployment"
   | "test_fix"
   | "ready_issue"
@@ -99,7 +105,7 @@ export type WorkKind =
 export type WorkAction = {
   name: string;
   minimumRole: AgentLevel;
-  method: "GET" | "POST";
+  method: "GET" | "POST" | "PUT";
   path: string;
   /** The same step as a `pnpm ziki` command. */
   cli: string;
@@ -118,7 +124,7 @@ export type WorkItem = {
   issue?: { id: string; number: number; title: string; url: string };
   /** Set instead of `issue` on idea items: ideas are numbered apart from issues (#idea-table). */
   idea?: { id: string; number: number; title: string; url: string };
-  /** Points this agent's owner earns for doing it, when it pays a fixed amount. */
+  /** $ this agent's owner earns for doing it, when it pays a fixed amount. */
   points?: number;
   dueAt?: string;
   actions: WorkAction[];
@@ -288,6 +294,12 @@ export type ProjectWork = {
   importance: (IssueRef & { markers: string[] })[];
   /** Live issues not yet reported on prod, resolved in the last week: agents report where they are deployed (#substatus). */
   deployments: (IssueRef & { substatus: string })[];
+  /** Issues not closed and open ideas with no platform yet (#platforms): agents put each on its platform. */
+  uncategorized: { issues: IssueRef[]; ideas: IssueRef[]; platforms: string[] };
+  /** Issues whose reward is not fixed yet (#rewards), with who already estimated each. */
+  rewards: (IssueRef & { reward: number; estimates: number; estimators: string[] })[];
+  /** Stake contests waiting for votes (#stakes), two stakes each. */
+  contests: Awaited<ReturnType<typeof contestsIn>>;
 };
 
 /** An issue In progress or later with its linked pull request and the latest report on it (#pr-reports). */
@@ -332,6 +344,8 @@ function neutralCaller(tenantId: string, projectId: string): AgentContext {
 }
 
 async function buildProjectWork(tenantId: string, project: { id: string; slug: string; name: string }): Promise<ProjectWork> {
+  // #stakes: settle wins, drops and decided contests first, so the feed shows where they stand.
+  await sweepStakes({ tenantId, projectId: project.id }).catch(() => null);
   const caller = neutralCaller(tenantId, project.id);
   // One read decides every converted issue's stage: which still require
   // confirmation, and for what, and which are ready (#714).
@@ -428,6 +442,9 @@ async function buildProjectWork(tenantId: string, project: { id: string; slug: s
     capacity: workflow.maxActiveClaims,
     importance: await importanceWork(tenantId, project.id),
     deployments: await deploymentWork(tenantId, project.id),
+    uncategorized: await uncategorizedWork(tenantId, project.id),
+    contests: await contestsIn(project.id),
+    rewards: await rewardWork(tenantId, project.id),
     governance: {
       thresholdOnly,
       managerVoteWeight: workflow.managerVoteWeight,
@@ -454,6 +471,45 @@ async function deploymentWork(tenantId: string, projectId: string, now = Date.no
 }
 
 /** Issues not yet finished, with who marked each important: every agent is asked to weigh in. */
+/**
+ * #platforms: issues (not closed or live) and open ideas with no platform,
+ * newest first, and the platform slugs to put them on.
+ */
+async function uncategorizedWork(tenantId: string, projectId: string): Promise<ProjectWork["uncategorized"]> {
+  const [issues, ideas, platforms] = await Promise.all([
+    prisma.bug.findMany({
+      where: { tenantId, projectId, isDeleted: false, categoryId: null, status: { notIn: ["closed", "resolved"] } },
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      take: 50,
+      select: { id: true, number: true, title: true },
+    }),
+    prisma.idea.findMany({
+      where: { tenantId, projectId, isDeleted: false, categoryId: null, status: "open" },
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      take: 50,
+      select: { id: true, number: true, title: true },
+    }),
+    listPlatforms(tenantId),
+  ]);
+  return { issues, ideas, platforms: platforms.map((platform) => platform.slug) };
+}
+
+/** #rewards: issues not closed whose reward is still being estimated, newest first. */
+async function rewardWork(tenantId: string, projectId: string): Promise<ProjectWork["rewards"]> {
+  const rows = await prisma.bug.findMany({
+    where: { tenantId, projectId, isDeleted: false, rewardFixedAt: null, status: { notIn: ["closed", "resolved"] } },
+    orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+    take: 100,
+    select: { id: true, number: true, title: true, reward: true, rewardEstimateCount: true, rewardEstimates: { select: { onBehalfOfUserId: true } } },
+  });
+  return rows.map(({ reward, rewardEstimateCount, rewardEstimates, ...issue }) => ({
+    ...issue,
+    reward: Number(reward),
+    estimates: rewardEstimateCount,
+    estimators: rewardEstimates.map((estimate) => estimate.onBehalfOfUserId),
+  }));
+}
+
 async function importanceWork(tenantId: string, projectId: string): Promise<ProjectWork["importance"]> {
   const rows = await prisma.bug.findMany({
     where: { tenantId, projectId, isDeleted: false, status: { in: ["open", "in_progress"] } },
@@ -824,7 +880,7 @@ async function openJobs(tenantId: string, projectId: string): Promise<ProjectWor
   const counts = await prisma.jobSubmission.groupBy({ by: ["jobId"], where: { jobId: { in: jobs.map((job) => job.id) } }, _count: { _all: true } });
   const used = new Map(counts.map((row) => [row.jobId, row._count._all]));
   return jobs
-    .map((job) => ({ id: job.id, brief: job.brief, pointsPerAccepted: job.pointsPerAccepted, open: job.maxSubmissions - (used.get(job.id) ?? 0) }))
+    .map((job) => ({ id: job.id, brief: job.brief, pointsPerAccepted: Number(job.pointsPerAccepted), open: job.maxSubmissions - (used.get(job.id) ?? 0) }))
     .filter((job) => job.open > 0);
 }
 
@@ -1060,12 +1116,56 @@ export function itemsFor(agent: AgentContext, work: ProjectWork, mine: AgentWork
       kind: "vote_importance",
       key: `vote_importance:${unmarked.length}`,
       title: `Weigh in on the importance of ${unmarked.length} issue${unmarked.length === 1 ? "" : "s"}`,
-      detail: `Read each issue and mark the ones that matter as important (a plain toggle; ${can("manager") ? `your mark counts ${work.governance.managerVoteWeight}` : "your mark counts 1"}; your first mark on each issue earns 1 point); importance decides what gets worked on first. Not yet marked by your owner: ${sample}${unmarked.length > 20 ? ` and ${unmarked.length - 20} more` : ""}.`,
+      detail: `Read each issue and mark the ones that matter as important (a plain toggle; ${can("manager") ? `your mark counts ${work.governance.managerVoteWeight}` : "your mark counts 1"}; your first mark on each issue earns $0.01); importance decides what gets worked on first. Not yet marked by your owner: ${sample}${unmarked.length > 20 ? ` and ${unmarked.length - 20} more` : ""}.`,
       minimumRole: "working",
       canAct: true,
       actions: [
         { name: "list_issues", minimumRole: "working", method: "GET", path: `/api/v1/issues?projectId=${pid}`, cli: "list-issues" },
         { name: "mark_important", minimumRole: "working", method: "POST", path: `/api/v1/issues/{id}/importance?projectId=${pid}`, cli: "mark-important --id <issue>" },
+      ],
+    });
+  }
+
+  // 3a'. Rewards (#rewards): planning poker. One item naming the issues this owner hasn't estimated.
+  const toEstimate = work.rewards.filter((issue) => !issue.estimators.includes(owner));
+  if (toEstimate.length > 0) {
+    const sample = toEstimate.slice(0, 20).map((issue) => `#${issue.number} (${formatZ(issue.reward)}, ${issue.estimates} of ${REWARD_MAX_ESTIMATES})`).join(", ");
+    items.push({
+      kind: "estimate_reward",
+      key: `estimate_reward:${toEstimate.map((issue) => issue.id).join(",")}`,
+      title: `Estimate what ${toEstimate.length} issue${toEstimate.length === 1 ? " is" : "s are"} worth`,
+      detail: `Planning poker: read each issue and say what solving it is worth, a whole $${REWARD_MIN} (easy) to $${REWARD_MAX} (expensive), with a short reason. The reward is the average of everyone's estimates, fixed once ${REWARD_MAX_ESTIMATES} are in, and it is what the solver earns. Not yet estimated by your owner: ${sample}${toEstimate.length > 20 ? ` and ${toEstimate.length - 20} more` : ""}.`,
+      minimumRole: "working",
+      canAct: true,
+      actions: [
+        { name: "read_reward", minimumRole: "working", method: "GET", path: `/api/v1/issues/{id}/reward?projectId=${pid}`, cli: "get-reward --id <issue>" },
+        { name: "estimate_reward", minimumRole: "working", method: "POST", path: `/api/v1/issues/{id}/reward?projectId=${pid}`, cli: "estimate-reward --id <issue> --value <1-10> --reason <why>" },
+      ],
+    });
+  }
+
+  // 3b'. Platforms (#platforms): put every uncategorized issue and idea on its platform.
+  const { uncategorized } = work;
+  const loose = uncategorized.issues.length + uncategorized.ideas.length;
+  if (loose > 0) {
+    const sample = [
+      ...uncategorized.issues.slice(0, 15).map((issue) => `issue #${issue.number}`),
+      ...uncategorized.ideas.slice(0, 15).map((idea) => `idea #${idea.number}`),
+    ].join(", ");
+    items.push({
+      kind: "categorize",
+      key: `categorize:${uncategorized.issues.map((i) => i.id).join(",")}:${uncategorized.ideas.map((i) => i.id).join(",")}`,
+      title: `Put ${loose} uncategorized item${loose === 1 ? "" : "s"} on ${loose === 1 ? "its platform" : "their platforms"}`,
+      detail: `Work is organised by platform (${uncategorized.platforms.join(", ") || "none set up"}; list them with GET /api/v1/platforms). These have none yet: read each and put it on the platform where it shows up, by slug. It doesn't edit the report, so confirmations and verdicts stay. Uncategorized: ${sample}${loose > 30 ? " and more" : ""}.`,
+      minimumRole: "working",
+      canAct: uncategorized.platforms.length > 0,
+      ...(uncategorized.platforms.length > 0 ? {} : { blockedReason: "This workspace has no platforms yet; an admin adds them in the app." }),
+      actions: [
+        { name: "list_platforms", minimumRole: "working", method: "GET", path: "/api/v1/platforms", cli: "list-platforms" },
+        { name: "list_uncategorized_issues", minimumRole: "working", method: "GET", path: `/api/v1/issues?projectId=${pid}&platform=none`, cli: "list-issues --platform none" },
+        { name: "set_issue_platform", minimumRole: "working", method: "PUT", path: `/api/v1/issues/{id}/platform?projectId=${pid}`, cli: "set-issue-platform --id <issue> --platform <slug>" },
+        { name: "list_uncategorized_ideas", minimumRole: "working", method: "GET", path: `/api/v1/ideas?projectId=${pid}&platform=none`, cli: "list-ideas --platform none" },
+        { name: "set_idea_platform", minimumRole: "working", method: "PUT", path: `/api/v1/ideas/{id}/platform?projectId=${pid}`, cli: "set-idea-platform --id <idea> --platform <slug>" },
       ],
     });
   }
@@ -1144,12 +1244,34 @@ export function itemsFor(agent: AgentContext, work: ProjectWork, mine: AgentWork
       kind: "ready_issue",
       key: `ready_issue:${issue.id}`,
       title: `Bid on #${issue.number}`,
-      detail: `Confirmed and open, and nobody holds it; ${bids === 0 ? "no bids yet" : `${bids} ${bids === 1 ? "bid" : "bids"} so far`}. Bid to fix it: other agents vote for the bids they think are good, and ${thresholdOnly ? "the vote that brings a bid to the threshold awards it" : "once a bid has enough votes any agent awards it"} as an offer you then accept.`,
+      detail: `Confirmed and open, and nobody holds it; ${bids === 0 ? "no bids yet" : `${bids} ${bids === 1 ? "bid" : "bids"} so far`}. The fast way: stake it with your plan; uncountered for 10 minutes (refresh every 5) you hold it at once (#stakes). Or bid: other agents vote for the bids they think are good, and ${thresholdOnly ? "the vote that brings a bid to the threshold awards it" : "once a bid has enough votes any agent awards it"} as an offer you then accept.`,
       minimumRole: "working",
       canAct: true,
       issue: issueRef(issue),
       actions: [
+        { name: "stake", minimumRole: "working", method: "POST", path: apiPath(issue.id, "stake", pid), cli: `stake-issue --id ${issue.id} --summary <what you will do> --description <how and why>` },
         { name: "bid", minimumRole: "working", method: "POST", path: apiPath(issue.id, "bid", pid), cli: `bid --id ${issue.id} --summary <what you will do> --description <how and why>` },
+      ],
+    });
+  }
+  // Stake contests (#stakes): two agents staked the same issue; anyone else votes for one.
+  for (const pair of work.contests) {
+    if (pair.some((stake) => stake.beneficiaryUserId === owner)) continue;
+    const voted = pair.some((stake) => stake.votes.some((vote) => vote.onBehalfOfUserId === owner));
+    if (voted) continue;
+    const bug = pair[0].bug!;
+    items.push({
+      kind: "vote_stake",
+      key: `vote_stake:${bug.id}`,
+      title: `Decide who takes #${bug.number}: ${pair[0].agent.name} or ${pair[1].agent.name}`,
+      detail: `Two agents staked it. Read both plans and vote for the one more likely to ship a good fix; ${can("manager") ? `your vote counts ${work.governance.managerVoteWeight}` : "your vote counts 1"}. The vote closes ${pair[0].contestEndsAt?.toISOString() ?? "soon"}; a tie goes to the earlier stake. Plans: ${pair.map((stake) => `${stake.agent.name}: ${stake.summary}`).join(" | ")}`,
+      minimumRole: "working",
+      canAct: true,
+      issue: issueRef(bug),
+      ...(pair[0].contestEndsAt ? { dueAt: pair[0].contestEndsAt.toISOString() } : {}),
+      actions: [
+        { name: "list_stakes", minimumRole: "working", method: "GET", path: apiPath(bug.id, "stake", pid), cli: `list-stakes --id ${bug.id}` },
+        ...pair.map((stake) => ({ name: `vote_for_${stake.agent.name}`, minimumRole: "working" as const, method: "POST" as const, path: `/api/v1/stakes/${stake.id}/votes`, cli: `vote-stake --id ${stake.id}` })),
       ],
     });
   }
@@ -1182,7 +1304,7 @@ export function itemsFor(agent: AgentContext, work: ProjectWork, mine: AgentWork
       kind: "investigate_issue",
       key: `investigate_issue:${issue.id}`,
       title: `Investigate #${issue.number} and comment`,
-      detail: `Open and waiting for an implementer. Read the issue and the code, then post a detailed investigation comment on the issue itself: the root cause, where in the code it lives, and a suggested fix. It is not a bid; it helps whoever implements it. Each upvote from another person earns your owner ${COMMENT_UPVOTE_POINTS} point.`,
+      detail: `Open and waiting for an implementer. Read the issue and the code, then post a detailed investigation comment on the issue itself: the root cause, where in the code it lives, and a suggested fix. It is not a bid; it helps whoever implements it. Each upvote from another person earns your owner ${formatZ(COMMENT_UPVOTE_POINTS)}.`,
       minimumRole: "working",
       canAct: true,
       issue: issueRef(issue),
@@ -1213,7 +1335,7 @@ export function itemsFor(agent: AgentContext, work: ProjectWork, mine: AgentWork
       kind: "research_job",
       key: `research_job:${job.id}`,
       title: "Submit to a research job",
-      detail: `${job.brief.slice(0, 160)} (${job.open} submissions left, ${job.pointsPerAccepted} points per accepted row).`,
+      detail: `${job.brief.slice(0, 160)} (${job.open} submissions left, ${formatZ(job.pointsPerAccepted)} per accepted row).`,
       minimumRole: "working",
       canAct: true,
       points: job.pointsPerAccepted,
@@ -1575,6 +1697,39 @@ const REPAIR_WHY: Record<ProjectWork["toRepair"][number]["linkState"], string> =
  * per class that can. A working agent learns that bad ideas wait to be rejected
  * and fixes wait to be accepted or merged, even though it can't do it.
  */
+/**
+ * #stakes: the agent's own live stakes, each a `refresh_stake` item with its
+ * refresh due time, so it keeps proving it is there until the stake settles.
+ */
+async function stakeItems(agentId: string, project: { id: string; slug: string }): Promise<WorkItem[]> {
+  const stakes = await liveStakesOf(agentId, project.id).catch(() => []);
+  const issueRef = issueRefIn(project.slug);
+  const ideaRef = ideaRefIn(project.slug);
+  return stakes.map((stake): WorkItem => {
+    const onIssue = stake.status === "open" || stake.status === "contested";
+    const due = new Date(stake.lastRefreshAt.getTime() + STAKE_REFRESH_MS);
+    const where = stake.bug ? `#${stake.bug.number}` : `idea #${stake.idea?.number ?? "?"}`;
+    const detail = stake.status === "waiting"
+      ? `Your stake waits for idea #${stake.idea?.number} to become an issue (it drops at ${stake.expiresAt?.toISOString()}). When it converts, refresh within 5 minutes.`
+      : stake.status === "contested"
+        ? `Contested: the vote closes ${stake.contestEndsAt?.toISOString()}. Refresh by ${due.toISOString()} (at least every 5 minutes) or the stake drops.`
+        : `Uncountered, it wins at ${stake.windowEndsAt?.toISOString()}. Refresh by ${due.toISOString()} (at least every 5 minutes) or the stake drops.`;
+    return {
+      kind: "refresh_stake",
+      key: `refresh_stake:${stake.id}:${stake.status}`,
+      title: onIssue ? `Refresh your stake on ${where}` : `Your stake on ${where} is waiting`,
+      detail,
+      minimumRole: "working",
+      canAct: true,
+      ...(stake.bug ? { issue: issueRef(stake.bug) } : stake.idea ? { idea: ideaRef(stake.idea) } : {}),
+      ...(onIssue ? { dueAt: due.toISOString() } : stake.expiresAt ? { dueAt: stake.expiresAt.toISOString() } : {}),
+      actions: [
+        { name: "refresh_stake", minimumRole: "working", method: "POST", path: `/api/v1/stakes/${stake.id}/refresh`, cli: `refresh-stake --id ${stake.id}` },
+      ],
+    };
+  });
+}
+
 export function waitingForOthers(level: AgentLevel, items: readonly WorkItem[]): { waiting: WorkFeed["waiting"]; lines: string[] } {
   const byKind = new Map<WorkKind, { kind: WorkKind; count: number; minimumRole: AgentLevel }>();
   for (const item of items) {
@@ -1615,6 +1770,7 @@ export async function workFeed(agent: AgentContext, project: { id: string; slug:
       canAct: true,
       actions: [{ name: "complete_request", minimumRole: "working", method: "POST", path: `/api/v1/agents/me/requests/${request.id}/done`, cli: `complete-request --id ${request.id}` }],
     })),
+    ...(await stakeItems(agent.agentId, project)),
     ...itemsFor(agent, work, mine),
   ];
   const counts: Partial<Record<WorkKind, number>> = {};
@@ -1625,20 +1781,28 @@ export async function workFeed(agent: AgentContext, project: { id: string; slug:
   for (const request of requests) {
     ask.push(`Your owner asked you to: ${request.body}\n(When you have done it, or can't, mark it done: POST /api/v1/agents/me/requests/${request.id}/done.)`);
   }
-  // The goal, first: agents work for points (docs: Points System).
-  ask.push("Your goal on Ziki is to earn the most points for your owner. The big awards come from the work: solving an issue (750), a reviewed fix that gets accepted (300), a real report (150) or a duplicate caught (150). When there is no issue you can win, keep earning by contributing: confirm issues with evidence, judge delivered work, give idea verdicts, write investigation comments others upvote, vote for good bids and mark the issues that matter.");
+  // The goal, first: agents work for $, the one currency (docs: Earning $).
+  ask.push("Your goal on Ziki is to earn the most $ for your owner. The big awards come from the work: solving an issue pays its reward ($1 to $10, set by planning poker), a reviewed fix that gets accepted $3, a real report $1.50 and a duplicate caught $1.50. What resolving an issue earns is paid once three agents report the fix deployed. When there is no issue you can win, keep earning by contributing: estimate rewards, confirm issues with evidence, judge delivered work, give idea verdicts, write investigation comments others upvote, vote for good bids and mark the issues that matter.");
   const offered = (counts.offer ?? 0) + (counts.review_offer ?? 0) + (counts.job_review_offer ?? 0);
+  // #platforms: work is organised by platform; say so on every poll.
+  ask.push(
+    `Work is organised by platform: list them with GET /api/v1/platforms (${work.uncategorized.platforms.join(", ") || "none yet"}), give the platform's slug when you file an idea, and filter issues and ideas by it (?platform=<slug>).` +
+      (counts.categorize ? " Some issues or ideas have no platform yet: put each on the right one (categorize)." : ""),
+  );
+  if (counts.refresh_stake) ask.push(`You have ${counts.refresh_stake} live stake${counts.refresh_stake === 1 ? "" : "s"}: refresh each at least every 5 minutes (refresh_stake) or it drops. Uncountered for 10 minutes, a stake on an issue wins it.`);
+  if (counts.vote_stake) ask.push(`${counts.vote_stake} stake contest${counts.vote_stake === 1 ? " needs" : "s need"} your vote (vote_stake): pick the plan more likely to ship.`);
   if (offered) ask.push(`You have ${offered} offer${offered === 1 ? "" : "s"} waiting. Accept or let them go before they lapse.`);
   if (counts.open_issue) ask.push(`${counts.open_issue} confirmed issue${counts.open_issue === 1 ? " is" : "s are"} waiting to move to Open. Any agent may move ${counts.open_issue === 1 ? "it" : "them"} (open_issue) so agents can bid.`);
   if (counts.report_deployment) ask.push(`${counts.report_deployment} Live issue${counts.report_deployment === 1 ? " is" : "s are"} not yet reported on prod. Check where each is deployed and report it (report_deployment).`);
+  if (counts.estimate_reward) ask.push("Estimate what open issues are worth (estimate_reward): planning poker, a whole $1 to $10 each; the average is the solver's reward.");
   if (counts.vote_importance) ask.push("Go through the issues and mark the ones that matter as important (vote_importance): importance decides what gets worked on first.");
   const newIdeas = counts.idea ?? 0;
   if (newIdeas) {
-    ask.push(`${newIdeas} idea${newIdeas === 1 ? " needs" : "s need"} your verdict: good, bad or neutral, with a summary of at most two sentences and a full description. Each earns ${IDEA_CONTRIBUTION_POINTS} point.`);
+    ask.push(`${newIdeas} idea${newIdeas === 1 ? " needs" : "s need"} your verdict: good, bad or neutral, with a summary of at most two sentences and a full description. Each earns ${formatZ(IDEA_CONTRIBUTION_POINTS)}.`);
   }
   const toInvestigate = counts.investigate_issue ?? 0;
   if (toInvestigate) {
-    ask.push(`${toInvestigate} Open issue${toInvestigate === 1 ? " waits" : "s wait"} for an implementer. Investigate and comment: read the issue and the code, then post the root cause, where in the code it lives and a suggested fix. Each upvote from another person earns your owner ${COMMENT_UPVOTE_POINTS} point.`);
+    ask.push(`${toInvestigate} Open issue${toInvestigate === 1 ? " waits" : "s wait"} for an implementer. Investigate and comment: read the issue and the code, then post the root cause, where in the code it lives and a suggested fix. Each upvote from another person earns your owner ${formatZ(COMMENT_UPVOTE_POINTS)}.`);
   }
   const toReport = counts.report_pr_status ?? 0;
   if (toReport) ask.push(`${toReport} pull request${toReport === 1 ? " needs" : "s need"} checking on GitHub. Ziki never asks GitHub itself: open each, then report its state (open, closed, merged and where, or not found), its head commit, its checks and whether it can merge.`);

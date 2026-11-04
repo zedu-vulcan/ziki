@@ -6,7 +6,7 @@ import { usePathname } from "next/navigation";
 const links = [
   { href: "/superadmin/users", label: "Users" },
   { href: "/superadmin/orgs", label: "Organisations" },
-  { href: "/superadmin/rewards", label: "Platform points" },
+  { href: "/superadmin/rewards", label: "Platform rewards" },
 ];
 
 /** The super admin sidebar. An organisation's own page counts as Organisations. */

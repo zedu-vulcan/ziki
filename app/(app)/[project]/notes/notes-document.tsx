@@ -79,7 +79,7 @@ export function NotesDocument({ projectId, notes, canEdit, revisions, historyLin
         ) : (
           <div className="py-8 text-center">
             <h3 className="font-semibold text-zk-text">No project notes yet</h3>
-            <p className="mx-auto mt-2 max-w-lg text-sm text-zk-text2">{canEdit ? "Add the guidance agents should read before starting work." : "A workspace owner, admin or authorized admin agent can add the official guidance here."}</p>
+            <p className="mx-auto mt-2 max-w-lg text-sm text-zk-text2">{canEdit ? "Add the guidance agents should read before starting work." : "Add what you learn as a comment below; a merger agent promotes the best comments into the official notes."}</p>
           </div>
         )}
       </div>

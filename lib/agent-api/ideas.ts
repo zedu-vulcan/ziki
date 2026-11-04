@@ -16,7 +16,9 @@ import {
   toPage,
   type IssueCursor,
 } from "@/lib/agent-api/create-policy";
-import { issueJson, issueProject } from "@/lib/agent-api/issues";
+import { issueJson, issueProject, requireKnownFilter } from "@/lib/agent-api/issues";
+import { parsePlatformFilter, PLATFORM_NONE } from "@/lib/platform-filter";
+import { platformSelect, resolvePlatform, withPlatform } from "@/lib/platforms";
 import { createBugSchema } from "@/lib/validations/issue";
 import { attachmentIdsInMarkdown, linkAttachments } from "@/lib/attachment-link";
 import { MAX_ATTACHMENT_BYTES, MAX_ATTACHMENTS_PER_ITEM, checkAttachment } from "@/lib/attachments";
@@ -43,8 +45,10 @@ const idSchema = z.string().trim().min(1).max(191);
 const attachmentIdsSchema = z.array(idSchema).max(MAX_ATTACHMENTS_PER_ITEM).optional();
 
 export const createIdeaSchema = createBugSchema
-  .pick({ title: true, description: true, categoryId: true, areaId: true, proofLinks: true })
+  .pick({ title: true, description: true, areaId: true, proofLinks: true })
   .extend({
+    /** #platforms: where it shows up, by slug ("desktop") or id, from GET /api/v1/platforms. */
+    platform: z.string().trim().min(1).max(191).optional(),
     // #494: no beneficiaryUserId. The reporter is always the agent's owner.
     projectId: idSchema.optional(),
     typeId: z.unknown().optional(),
@@ -67,6 +71,8 @@ export const ideaSelect = {
   score: true,
   typeId: true,
   categoryId: true,
+  // #platforms: returned as `platform: { id, slug, name }` (ideaJson renames it).
+  category: { select: platformSelect },
   areaId: true,
   proofLinks: true,
   projectId: true,
@@ -88,7 +94,7 @@ type IdeaRow = Prisma.IdeaGetPayload<{ select: typeof ideaSelect }>;
 
 /** The idea as the API shows it: the issue it became, and whether it can be converted now. */
 export function ideaJson(idea: IdeaRow, ideaThreshold: number) {
-  const { issue, ...rest } = idea;
+  const { issue, ...rest } = withPlatform(idea);
   return {
     ...rest,
     issueId: issue?.id ?? null,
@@ -98,7 +104,7 @@ export function ideaJson(idea: IdeaRow, ideaThreshold: number) {
   };
 }
 
-/** `?status=`, `?convertible=`, `?q=` and the shared cursor, newest first. */
+/** `?status=`, `?convertible=`, `?platform=` (slug, id or "none"), `?q=` and the shared cursor, newest first. */
 export async function listAgentIdeas(scope: Scope, params: URLSearchParams) {
   const rawStatus = params.get("status");
   if (rawStatus && !(IDEA_STATUSES as readonly string[]).includes(rawStatus)) {
@@ -116,9 +122,15 @@ export async function listAgentIdeas(scope: Scope, params: URLSearchParams) {
   const { ideaThreshold } = await workflowFor(scope.projectId);
   const q = params.get("q")?.trim();
   const term = q ? escapeSearchQuery(boundSearchTerm(q)) : null;
+  const rawPlatform = params.get("platform");
+  const platforms = rawPlatform
+    ? await prisma.category.findMany({ where: { tenantId: scope.tenantId }, select: { id: true, name: true, slug: true } })
+    : [];
+  const platform = requireKnownFilter("platform", rawPlatform, parsePlatformFilter(rawPlatform, platforms));
   const where: Prisma.IdeaWhereInput = {
     ...scope,
     isDeleted: false,
+    ...(platform ? { categoryId: platform === PLATFORM_NONE ? null : platform } : {}),
     ...(rawStatus ? { status: rawStatus as IdeaStatus } : {}),
     ...(convertibleRaw === "true" ? { status: "open", score: { gte: ideaThreshold } } : {}),
     ...(convertibleRaw === "false" ? { NOT: { status: "open", score: { gte: ideaThreshold } } } : {}),
@@ -284,7 +296,7 @@ async function createIdeaFromBody(agent: AgentContext, request: NextRequest, bod
     title: input.title,
     summary: input.summary,
     description: input.description,
-    categoryId: input.categoryId || null,
+    platform: input.platform ?? null,
     proofLinks: input.proofLinks,
     typeId: input.typeId ?? null,
     acknowledgeSimilar: input.acknowledgeSimilar ?? null,
@@ -309,11 +321,7 @@ async function createIdeaFromBody(agent: AgentContext, request: NextRequest, bod
         select: { userId: true },
       });
       if (!member) throw new IssueApiError(422, "The beneficiary must be a member of the tenant.");
-      const categoryId = input.categoryId || null;
-      if (categoryId) {
-        const category = await tx.category.findFirst({ where: { id: categoryId, tenantId: scope.tenantId, isActive: true }, select: { id: true } });
-        if (!category) throw new IssueApiError(422, "Platform not found or inactive.");
-      }
+      const categoryId = input.platform ? (await resolvePlatform(tx, scope.tenantId, input.platform)).id : null;
       const areaId = input.areaId || null;
       if (areaId) {
         const area = await tx.projectArea.findFirst({ where: { id: areaId, projectId: scope.projectId }, select: { id: true } });

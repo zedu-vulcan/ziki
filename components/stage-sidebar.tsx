@@ -23,6 +23,7 @@ export function StageSidebar({ steps }: { steps: SidebarStep[] }) {
                 aria-current={step.selected ? "page" : undefined}
                 className="group flex min-w-0 flex-1 gap-3 rounded-md"
               >
+                {/* The label lines up with its box (self-start), not the box and its connector together. */}
                 <span className="flex flex-col items-center">
                   {/* The count sits in the box; the selected one is filled blue. */}
                   <span
@@ -39,7 +40,7 @@ export function StageSidebar({ steps }: { steps: SidebarStep[] }) {
                   {last ? null : <span aria-hidden="true" className="my-1 min-h-5 w-0.5 flex-1 rounded-full bg-zk-border max-lg:hidden" />}
                 </span>
                 <span
-                  className={`flex min-h-7 min-w-0 flex-1 items-center leading-tight max-lg:whitespace-nowrap text-sm group-hover:text-zk-accent ${
+                  className={`flex min-h-7 min-w-0 flex-1 items-center self-start leading-tight max-lg:whitespace-nowrap text-sm group-hover:text-zk-accent ${
                     step.selected ? "font-bold text-zk-text" : "font-medium text-zk-text2"
                   }`}
                 >

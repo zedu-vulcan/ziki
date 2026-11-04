@@ -47,7 +47,7 @@ async function main() {
   });
 
   for (const name of ["Desktop", "Web", "Mobile"]) {
-    await prisma.category.create({ data: { tenantId: tenant.id, name, isActive: true } });
+    await prisma.category.create({ data: { tenantId: tenant.id, name, slug: name.toLowerCase(), isActive: true } });
   }
   for (const [name, description] of [
     ["Fix", "Issue fixes and defect resolutions"],

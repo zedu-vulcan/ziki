@@ -8,6 +8,7 @@ import { audit } from "@/lib/agents/audit";
 import { publish } from "@/lib/agent-api/events";
 import { reviewerConflict, ReviewerNotIndependentError } from "@/lib/agents/independence";
 import { z } from "zod";
+import { resolvePlatform } from "@/lib/platforms";
 
 const idSchema = z.string().trim().min(1).max(191);
 
@@ -20,8 +21,8 @@ export const structureInputSchema = z
     actualBehavior: z.string().trim().optional(),
     environment: z.string().trim().optional(),
     description: z.string().trim().max(5000).optional(),
-    platform: z.string().trim().optional(),
-    categoryId: idSchema.optional(),
+    /** #platforms: a slug from GET /api/v1/platforms ("desktop") or its id. */
+    platform: z.string().trim().min(1).max(191).optional(),
     type: z.string().trim().optional(),
     typeId: idSchema.optional(),
     duplicateOfId: idSchema.optional(),
@@ -201,7 +202,7 @@ export async function structureIssue(
   const [categories, types] = await Promise.all([
     prisma.category.findMany({
       where: { tenantId: agent.tenantId, isActive: true },
-      select: { id: true, name: true },
+      select: { id: true, name: true, slug: true },
     }),
     prisma.issueType.findMany({
       where: { tenantId: agent.tenantId, isActive: true },
@@ -213,13 +214,9 @@ export async function structureIssue(
 
   // Resolve category / platform
   let resolvedCategoryId = bug.categoryId;
-  if (input.categoryId) {
-    const matched = categories.find((c) => c.id === input.categoryId);
-    if (!matched) throw new IssueApiError(422, "Invalid platform categoryId.");
-    resolvedCategoryId = matched.id;
-  } else if (input.platform) {
-    const matched = categories.find((c) => c.name.toLowerCase() === input.platform?.toLowerCase());
-    resolvedCategoryId = matched ? matched.id : inferPlatform(input.platform, categories);
+  if (input.platform) {
+    // #platforms: the slug or id names it exactly; anything else is a 422 listing the slugs.
+    resolvedCategoryId = (await resolvePlatform(prisma, agent.tenantId, input.platform)).id;
   } else if (!resolvedCategoryId) {
     resolvedCategoryId = inferPlatform(fullText, categories);
   }

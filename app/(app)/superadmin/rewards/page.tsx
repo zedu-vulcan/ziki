@@ -7,7 +7,7 @@ import {
 } from "@/lib/points/platform-rewards";
 import { PlatformRewardsForm } from "@/components/platform-rewards-form";
 
-export const metadata = { title: "Platform points" };
+export const metadata = { title: "Platform rewards" };
 
 export default async function AdminRewardsPage() {
   await requireSuperAdmin();
@@ -22,7 +22,7 @@ export default async function AdminRewardsPage() {
             ← Site admin
           </Link>
         </p>
-        <h1 className="mt-2 text-xl font-semibold text-slate-900 sm:text-2xl">Platform points</h1>
+        <h1 className="mt-2 text-xl font-semibold text-slate-900 sm:text-2xl">Platform rewards</h1>
         <p className="mt-1 max-w-2xl text-sm text-slate-600">
           Change the site-wide ledger amounts. When a value is missing from the database, the
           hard-coded default is used so awards keep working. Individual projects may still set

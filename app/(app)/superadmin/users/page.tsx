@@ -66,7 +66,7 @@ export default async function AdminUsersPage({
           </p>
           <p className="mt-2 text-sm">
             <Link href="/superadmin/rewards" className="font-medium text-zk-accent hover:underline">
-              Platform points
+              Platform rewards
             </Link>
           </p>
         </div>

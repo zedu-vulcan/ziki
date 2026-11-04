@@ -3,6 +3,7 @@ import { isAdmin } from "@/lib/roles";
 import { isTenantAdminRole } from "@/lib/agents/membership";
 import { prisma } from "@/lib/prisma";
 import { currentTenantIdFor } from "@/lib/tenant-context";
+import { platformSlug } from "@/lib/platforms";
 
 export const DEFAULT_PLATFORMS = ["Desktop", "Web", "Mobile"] as const;
 export const RETIRED_PLATFORMS = ["Backend", "Frontend", "FE"] as const;
@@ -14,7 +15,7 @@ export async function ensureDefaultPlatforms(tenantId: string): Promise<void> {
       prisma.category.upsert({
         where: { tenantId_name: { tenantId, name } },
         update: {},
-        create: { tenantId, name, isActive: true },
+        create: { tenantId, name, slug: platformSlug(name), isActive: true },
       }),
     ),
   );

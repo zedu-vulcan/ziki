@@ -32,6 +32,7 @@ import {
   normalizeMentions,
 } from "@/lib/mentions";
 import { resolveTenantMentions, tenantMemberWhere } from "@/lib/tenant-mentions";
+import { structureIdea } from "@/lib/idea-structuring";
 import {
   commentSchema,
   createBugSchema,
@@ -81,7 +82,8 @@ import {
   NO_TENANT_MESSAGE,
 } from "@/lib/tenant-context";
 import { currentTenantAccess } from "@/lib/tenant-access";
-import { award, awardSolver } from "@/lib/points/award";
+import { award, solverAwardFor } from "@/lib/points/award";
+import { holdPayout } from "@/lib/points/payout";
 import { isConfirmed } from "@/lib/agent-api/confirmations";
 import { correct } from "@/lib/points/correct";
 import { VOTE_POINTS, importanceSourceKey, pointSourceKey } from "@/lib/points/rules";
@@ -265,8 +267,12 @@ export async function createBugAction(
   const areaId = parsed.data.areaId && parsed.data.areaId.length > 0
     ? parsed.data.areaId
     : null;
+  // #idea-intake: Claude writes what they typed up as a clear idea (title and the standard
+  // headings) before it is saved. Without the key, or if that fails, it is saved as typed.
+  const structured = await structureIdea({ title: parsed.data.title, description: parsed.data.description });
+  const ideaTitle = structured?.title ?? parsed.data.title;
   // #502: mentions resolve only to members of the idea's tenant.
-  const description = await resolveTenantMentions(prisma, tenantId, parsed.data.description);
+  const description = await resolveTenantMentions(prisma, tenantId, structured?.description ?? parsed.data.description);
 
   if (categoryId) {
     const category = await prisma.category.findFirst({
@@ -295,7 +301,7 @@ export async function createBugAction(
           projectId,
           beneficiaryUserId: userId,
           reporterId: userId,
-          title: parsed.data.title,
+          title: ideaTitle,
           description,
           typeId,
           proofLinks: parsed.data.proofLinks,
@@ -793,15 +799,15 @@ export async function updateBugAction(
           }
         }
       }
-      // #428: resolving an issue earns its assignee solver points, once.
+      // #428, #rewards: resolving an issue earns its assignee the issue's reward, once,
+      // held until enough people report the work deployed (#live-payout).
       if (data.status === "resolved" && existing.status !== "resolved") {
-        await awardSolver(tx, {
+        const solver = await solverAwardFor(tx, {
           id: bugId,
           tenantId: existing.tenantId,
-          projectId: existing.projectId,
-          pullRequestUrl: existing.pullRequestUrl,
           assigneeId: data.assigneeId !== undefined ? data.assigneeId : existing.assigneeId,
         });
+        if (solver) await holdPayout(tx, bugId, [solver]);
       }
       if (pending.length > 0) {
         await tx.bugActivity.createMany({

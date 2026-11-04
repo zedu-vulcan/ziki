@@ -17,6 +17,7 @@ import { duplicateRef, IDEA_WITHDRAWN_REASON, withdrawnNotArchivableMessage, typ
 import { WORKFLOW_LIMITS } from "@/lib/workflow-config";
 import { isThresholdOnly, thresholdDecision, voteWeight, type ThresholdDecision } from "@/lib/governance";
 import { moveTo } from "@/lib/issue-substatus";
+import { moveIdeaStakesToIssue } from "@/lib/agent-api/stakes";
 
 /**
  * Idea verdicts and conversion (#idea-verdicts, #idea-table). Each person
@@ -399,6 +400,8 @@ async function convertLocked(
     where: { id: locked.id },
     data: { status: "converted", convertedAt: at, convertedByAgentId: by.agentId, issueId: issue.id },
   });
+  // #stakes: the idea's stakes move to the issue, and their 10-minute window (or contest) starts now.
+  await moveIdeaStakesToIssue(tx, locked.id, { id: issue.id, number: issue.number, tenantId: scope.tenantId, projectId }, at);
   await publish(tx, {
     tenantId: scope.tenantId,
     type: "issue.converted",

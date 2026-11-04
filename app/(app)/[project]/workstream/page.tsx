@@ -5,6 +5,21 @@ import { workFeed, type WorkItem, type WorkKind } from "@/lib/agent-api/work";
 import { issuePath } from "@/lib/issue-ref";
 import { ideaPath, ideasPath } from "@/lib/project-paths";
 import type { AgentContext } from "@/lib/agents/require-agent";
+import { loadOwnAgents } from "@/lib/dashboard-overview";
+import { AskAgentButton, type AskAgent } from "@/components/ask-agent-button";
+
+/** How many items a section's prefilled request lists by name. */
+const REQUEST_ITEM_LIMIT = 10;
+
+/** The prefilled request under a section: what to do, where, and which items. */
+function sectionRequest(projectName: string, label: string, items: WorkItem[]): string {
+  const named = items.slice(0, REQUEST_ITEM_LIMIT).map((item) => {
+    const ref = item.issue ? `#${item.issue.number}` : item.idea ? `Idea #${item.idea.number}` : "";
+    return `- ${ref ? `${ref} ` : ""}${item.title}`;
+  });
+  const more = items.length > REQUEST_ITEM_LIMIT ? [`- and ${items.length - REQUEST_ITEM_LIMIT} more in the workstream`] : [];
+  return [`In ${projectName}, please work on "${label}" from the workstream (${items.length}):`, ...named, ...more].join("\n");
+}
 
 export const metadata = { title: "Workstream" };
 
@@ -40,6 +55,20 @@ const KIND_LABEL: Partial<Record<WorkKind, string>> = {
 
 const ROLE_LABEL: Record<string, string> = { working: "Any agent", manager: "Manager agents", merger: "Merger agents" };
 
+/**
+ * The summary at the top: each kind of work under the issue status it moves
+ * (Ideas, then the issue's main statuses), so the page reads at a glance.
+ */
+const SUMMARY_GROUPS: { label: string; kinds: WorkKind[] }[] = [
+  { label: "Ideas", kinds: ["idea", "convert_idea", "reject_idea"] },
+  { label: "Open", kinds: ["confirm_issue", "open_issue", "vote_importance", "investigate_issue", "ready_issue", "review_bid", "award_bid", "offer", "review_offer"] },
+  { label: "In progress", kinds: ["active_claim", "owner_request", "reclaim_issue", "sense_check", "review_idle", "deliver_stranded"] },
+  { label: "Done", kinds: ["test_fix", "accept_fix"] },
+  { label: "Merge", kinds: ["merge_fix", "report_pr_status", "repair_pull_request", "reconcile_merged", "await_release"] },
+  { label: "Live", kinds: ["report_deployment"] },
+];
+const GROUPED_KINDS = new Set<WorkKind>(SUMMARY_GROUPS.flatMap((group) => group.kinds));
+
 function itemHref(slug: string, item: WorkItem): string | null {
   if (item.issue) return issuePath(slug, item.issue.number);
   if (item.idea) return ideaPath(slug, item.idea.number);
@@ -62,9 +91,28 @@ export default async function WorkstreamPage({ params }: { params: Promise<{ pro
     ? { agentId: own.id, name: own.name, ownerId: own.ownerUserId, tenantId, level: own.level, burst: false, keyId: "web" }
     : { agentId: "workstream-viewer", name: "Workstream", ownerId: user.id, tenantId, level: "merger", burst: false, keyId: "web" };
   const feed = await workFeed(viewer, { id: project.id, slug: project.slug, name: project.name });
+  // Your agents, for "Ask my agent to work on this" under each section.
+  const askAgents: AskAgent[] = (await loadOwnAgents({ userId: user.id, tenantId }).catch(() => [])).map((agent) => ({
+    id: agent.id,
+    name: agent.name,
+    status: agent.status,
+  }));
 
   const groups = new Map<WorkKind, WorkItem[]>();
   for (const item of feed.items) groups.set(item.kind, [...(groups.get(item.kind) ?? []), item]);
+
+  // At a glance: how much work waits at each status, and of which kinds.
+  const summary = [
+    ...SUMMARY_GROUPS,
+    { label: "Other", kinds: [...groups.keys()].filter((kind) => !GROUPED_KINDS.has(kind)) },
+  ].map((group) => {
+    const kinds = group.kinds
+      .map((kind) => ({ kind, count: groups.get(kind)?.length ?? 0 }))
+      .filter((entry) => entry.count > 0);
+    // Every item at this status, for the card's "Ask my agent" request.
+    const items = kinds.flatMap((entry) => groups.get(entry.kind) ?? []);
+    return { label: group.label, kinds, items, total: kinds.reduce((sum, entry) => sum + entry.count, 0) };
+  }).filter((group) => group.label !== "Other" || group.total > 0);
 
   return (
     <div className="mx-auto w-full max-w-[920px] space-y-5">
@@ -78,6 +126,54 @@ export default async function WorkstreamPage({ params }: { params: Promise<{ pro
         </div>
         <Link href={ideasPath(project.slug)} className="text-sm font-semibold text-zk-accent hover:underline">← Ideas</Link>
       </div>
+
+      {feed.items.length > 0 ? (
+        <section aria-label="Workstream summary" className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-4">
+          {summary.map((group) => (
+            <div
+              key={group.label}
+              className={`rounded-2xl border px-4 py-3 ${group.total > 0 ? "border-zk-border bg-zk-surface" : "border-dashed border-zk-border bg-transparent"}`}
+            >
+              <div className="flex items-baseline justify-between gap-2">
+                <span className="text-[13px] font-bold text-zk-text">{group.label}</span>
+                {group.total > 0 ? (
+                  <span className="font-mono text-lg font-bold tabular-nums text-zk-text">{group.total}</span>
+                ) : (
+                  // Nothing to do here: a green check instead of a 0.
+                  <span className="flex h-7 w-7 items-center justify-center rounded-full bg-zk-ok-bg text-zk-ok-fg" role="img" aria-label="Nothing to do">
+                    <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6 9 17l-5-5" /></svg>
+                  </span>
+                )}
+              </div>
+              {group.kinds.length > 0 ? (
+                <ul className="m-0 mt-1.5 list-none space-y-0.5 p-0">
+                  {group.kinds.map((entry) => (
+                    <li key={entry.kind} className="flex items-baseline justify-between gap-2 text-[12px]">
+                      <a href={`#ws-${entry.kind}`} className="truncate text-zk-text2 hover:text-zk-accent hover:underline">
+                        {KIND_LABEL[entry.kind] ?? entry.kind.replace(/_/g, " ")}
+                      </a>
+                      <span className="font-mono tabular-nums text-zk-muted">{entry.count}</span>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="m-0 mt-1.5 text-[12px] font-medium text-zk-ok-fg">All done, nothing waiting</p>
+              )}
+              {group.total > 0 ? (
+                <div className="mt-2.5 border-t border-zk-divider pt-2.5">
+                  <AskAgentButton
+                    compact
+                    label={group.label}
+                    request={sectionRequest(project.name, `${group.label} work`, group.items)}
+                    agents={askAgents}
+                    projectId={project.id}
+                  />
+                </div>
+              ) : null}
+            </div>
+          ))}
+        </section>
+      ) : null}
 
       {feed.items.length === 0 ? (
         <p className="rounded-[20px] border border-zk-border bg-zk-surface px-5 py-10 text-center text-sm text-zk-text2">

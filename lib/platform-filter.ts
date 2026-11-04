@@ -6,10 +6,12 @@ export const PLATFORM_PARAM = "platform";
 /** Value that selects issues with no platform set, which is a real state. */
 export const PLATFORM_NONE = "none";
 
-export type PlatformOption = { id: string; name: string; isActive?: boolean };
+export type PlatformOption = { id: string; name: string; slug?: string; isActive?: boolean };
 
 /**
  * The selected platform, as either a category id, "none", or null for "all".
+ * The value may be the platform's id or its slug (#platforms: "desktop"); it
+ * resolves to the id.
  *
  * Validate against every platform, active or not: a deactivated platform
  * still has issues attached, and a shared link to them has to keep working.
@@ -24,7 +26,8 @@ export function parsePlatformFilter(
   const value = (Array.isArray(raw) ? raw[0] : raw)?.trim();
   if (!value) return null;
   if (value === PLATFORM_NONE) return PLATFORM_NONE;
-  return platforms.some((p) => p.id === value) ? value : null;
+  const lower = value.toLowerCase();
+  return platforms.find((p) => p.id === value || p.slug === lower)?.id ?? null;
 }
 
 /** The `where` fragment for a parsed filter; `{}` when nothing is selected. */

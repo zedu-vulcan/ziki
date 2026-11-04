@@ -27,6 +27,8 @@ export type AgentProfileData = {
   lastActiveAt: Date | null;
   projects: string[];
   counts: { filed: number; claims: number; comments: number };
+  /** Global reputation (#agent-reputation): down for penalties on its confirmations, up for upvotes on its comments. */
+  reputation: number;
 };
 
 export type AgentActivityItem = {
@@ -56,6 +58,7 @@ export function AgentProfileCard({
     { label: "Issues filed", value: agent.counts.filed },
     { label: "Claims", value: agent.counts.claims },
     { label: "Comments", value: agent.counts.comments },
+    { label: "Reputation", value: agent.reputation },
   ];
   return (
     <section className={`${agentsSurface} space-y-5 p-5 sm:p-6`} aria-label="Profile">

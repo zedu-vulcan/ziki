@@ -73,7 +73,11 @@ function stageFilterValue(raw: string | null): StageFilter | "" {
   return STAGE_OPTIONS.find((option) => option.value === raw)?.value ?? "";
 }
 
-/** URL params owned by the filter bar. `page` is paging, not a filter. */
+/**
+ * URL params owned by the filter bar. `page` is paging, not a filter, and
+ * `sort` is ordering (the column headers, #column-sort): sorting never shows
+ * the active-filters bar.
+ */
 const FILTER_PARAMS = [
   "q",
   STAGE_PARAM,
@@ -82,7 +86,6 @@ const FILTER_PARAMS = [
   "status",
   PLATFORM_PARAM,
   AREA_PARAM,
-  "sort",
   MILESTONE_PARAM,
 ];
 
@@ -428,7 +431,6 @@ export function IssueFilters({
     currentPlatform === PLATFORM_NONE,
     Boolean(currentArea),
     Boolean(currentMilestone),
-    Boolean(params.get("sort")),
   ].filter(Boolean).length;
 
   // Only worth offering when there is something to clear (#336).
@@ -742,12 +744,6 @@ export function IssueFilters({
             <span className="inline-flex items-center gap-1 rounded-full border border-zk-border bg-zk-chip py-0.5 pl-2.5 pr-1.5 text-xs font-bold text-zk-text">
               View: {mineFilterLabels[currentMine as keyof typeof mineFilterLabels] ?? currentMine}
               <button type="button" onClick={() => update("mine", "")} aria-label="Remove view filter" className="ml-0.5 rounded-full p-0.5 text-zk-muted hover:bg-zk-divider">✕</button>
-            </span>
-          ) : null}
-          {params.get("sort") ? (
-            <span className="inline-flex items-center gap-1 rounded-full border border-zk-border bg-zk-chip py-0.5 pl-2.5 pr-1.5 text-xs font-bold text-zk-text">
-              Sort: {bugSortLabels[currentSort]}
-              <button type="button" onClick={() => update("sort", "")} aria-label="Remove sort filter" className="ml-0.5 rounded-full p-0.5 text-zk-muted hover:bg-zk-divider">✕</button>
             </span>
           ) : null}
           <button type="button" onClick={clearAllFilters} className="ml-auto rounded-full border border-zk-border bg-zk-surface px-3 py-1.5 text-xs font-bold text-zk-text hover:bg-zk-chip focus:border-electric-blue focus:outline-none focus:ring-1 focus:ring-electric-blue">

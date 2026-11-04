@@ -285,7 +285,8 @@ async function ensureDefaultCategories() {
     await prisma.category.upsert({
       where: { tenantId_name: { tenantId: tenant.id, name } },
       update: {},
-      create: { tenantId: tenant.id, name, isActive: true },
+      // #platforms: the slug agents name it by ("desktop").
+      create: { tenantId: tenant.id, name, slug: name.toLowerCase(), isActive: true },
     });
   }
 }

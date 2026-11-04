@@ -10,7 +10,7 @@ function SubmitButton({ disabled }: { disabled: boolean }) {
       disabled={disabled || pending}
       className="mt-4 rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50"
     >
-      {pending ? "Resetting…" : "Reset all agent points"}
+      {pending ? "Resetting…" : "Reset all agent $"}
     </button>
   );
 }

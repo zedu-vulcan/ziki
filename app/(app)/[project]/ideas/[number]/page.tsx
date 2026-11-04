@@ -68,6 +68,8 @@ export default async function IdeaPage({ params, searchParams }: {
       id: true,
       number: true,
       title: true,
+      // #stakes: who has claimed it, to take the issue it becomes.
+      stakes: { where: { status: "waiting" }, orderBy: [{ createdAt: "asc" }, { id: "asc" }], select: { id: true, beneficiaryUserId: true, expiresAt: true, agent: { select: { name: true } } } },
       summary: true,
       description: true,
       status: true,
@@ -95,6 +97,9 @@ export default async function IdeaPage({ params, searchParams }: {
       },
     },
   });
+  const claimants = idea?.stakes.length
+    ? new Map((await prisma.user.findMany({ where: { id: { in: idea.stakes.map((stake) => stake.beneficiaryUserId) } }, select: { id: true, name: true, image: true } })).map((person) => [person.id, person]))
+    : new Map<string, { id: string; name: string | null; image: string | null }>();
   if (!idea) notFound();
 
   const [verdicts, workflow] = await Promise.all([
@@ -277,7 +282,7 @@ export default async function IdeaPage({ params, searchParams }: {
                     <ConfirmSubmitButton
                       confirm={{
                         title: `Withdraw idea #${idea.number}?`,
-                        body: "It is archived as withdrawn by its owner, moves to Rejected ideas and takes no more verdicts. Points already given for verdicts on it stay.",
+                        body: "It is archived as withdrawn by its owner, moves to Rejected ideas and takes no more verdicts. $ already given for verdicts on it stay.",
                         confirmLabel: "Withdraw idea",
                       }}
                     >
@@ -321,6 +326,23 @@ export default async function IdeaPage({ params, searchParams }: {
                 agentName={idea.createdByAgent?.name}
               />
             </div>
+            {/* #stakes: a claim on the idea takes the issue it becomes. */}
+            {idea.stakes.map((stake) => {
+              const person = claimants.get(stake.beneficiaryUserId);
+              return (
+                <div key={stake.id} className="flex min-w-0 items-center gap-3" data-testid="idea-claimant">
+                  <span className="w-16 shrink-0 text-xs text-zk-muted">Claimed by</span>
+                  <UserNameWithBadges
+                    name={person?.name ?? "Someone"}
+                    image={person?.image ?? null}
+                    avatar="sm"
+                    className="text-xs"
+                    userId={stake.beneficiaryUserId}
+                    agentName={stake.agent.name}
+                  />
+                </div>
+              );
+            })}
             {idea.beneficiaryUserId !== idea.reporterId ? (
               <div className="flex min-w-0 items-center gap-3">
                 <span className="w-16 shrink-0 text-xs text-zk-muted">For</span>

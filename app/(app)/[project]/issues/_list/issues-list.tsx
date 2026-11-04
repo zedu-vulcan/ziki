@@ -1,5 +1,4 @@
 import { IdeasWelcome } from "@/components/ideas-welcome";
-import { IdeasShowDoneButton } from "@/components/ideas-show-done";
 import { IdeaChat } from "@/components/idea-chat";
 import { LocalTime } from "@/components/local-time";
 import { POSSIBLY_DELIVERED_STATUS, POSSIBLY_DELIVERED_WHERE, deliverySignals, type DeliverySignals } from "@/lib/possibly-delivered";
@@ -13,9 +12,17 @@ import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { getIssueTypes, getPlatforms } from "@/lib/lookups";
 
-import { ProjectNotesLink } from "@/components/project-notes-link";
 import { PipelineSteps } from "@/components/pipeline-steps";
 import { StageSidebar } from "@/components/stage-sidebar";
+import { StatusFilterChips } from "@/components/status-filter-chips";
+import { ToolbarFilterMenu, type ToolbarFilterGroup, type ToolbarFilterOption } from "@/components/toolbar-filter-menu";
+import { IdeasMoreFilters } from "@/components/ideas-more-filters";
+import { IDEA_AUTHOR_PARAM, parseIdeaAuthorFilter } from "@/lib/idea-filters";
+import { MY_WORK_PARAM, myWorkWhere, parseMyWorkFilter } from "@/lib/my-work-filter";
+import { IDEA_SORT_COOKIE, ISSUE_SORT_COOKIE, getIdeaOrderBy, parseIdeaSort } from "@/lib/list-sort";
+import { SortHeader } from "@/components/sort-header";
+import { PROJECT_LINKS_SLOT_ID, ProjectLinks } from "@/components/project-links";
+import { isTenantAdmin } from "@/lib/agents/membership";
 import type { AppRole } from "@/lib/roles";
 import { IssueFilters } from "@/components/issue-filters";
 import { RowAge, RowAssignee } from "@/components/issue-row-meta";
@@ -83,6 +90,7 @@ import {
 import { PlatformMenu, type PlatformTab } from "@/components/platform-tabs";
 import { IssueRowStatus } from "@/components/issue-row-status";
 import { BidsVoteBadge, ImportanceVoteBadge } from "@/components/vote-badge";
+import { RewardBadge } from "@/components/reward-badge";
 import { mergePathOf } from "@/lib/merge-history";
 import { IssuesToolsToggle } from "@/components/issues-tools-toggle";
 import { LoadError } from "@/components/load-error";
@@ -242,11 +250,15 @@ export async function IssuesList({
   const pageParam = toSingleQueryParam(params.page);
   const deletedParam = toSingleQueryParam(params.deleted);
   const mineFilter = parseMineFilter(params.mine);
+  const ideaAuthor = parseIdeaAuthorFilter(params[IDEA_AUTHOR_PARAM]);
   const isDeletedView = canDelete && deletedParam === "true";
   // Workspace-wide view (`?all=1`). Absent → unchanged project scope.
   const allProjects = showsAllProjects(params[PROJECT_ALL_PARAM]);
 
-  const currentSort = parseBugSort(sortParam, defaultSortFor(mineFilter));
+  // Column sort (#column-sort): the address wins, then the sort remembered in this list's cookie.
+  const sortCookies = await cookies();
+  const currentSort = parseBugSort(sortParam ?? sortCookies.get(ISSUE_SORT_COOKIE)?.value, defaultSortFor(mineFilter));
+  const currentIdeaSort = parseIdeaSort(sortParam ?? sortCookies.get(IDEA_SORT_COOKIE)?.value);
   const isWatchingView = mineFilter === "watching" && !!userId;
   // #285: duplicates are hidden unless asked for, and the count says so.
   const showDuplicates = parseShowDuplicates(params[DUPLICATES_PARAM]);
@@ -343,6 +355,12 @@ export async function IssuesList({
   const selectedArea = parseProjectAreaFilter(params[AREA_PARAM], areas);
   Object.assign(where, projectAreaFilterWhere(selectedArea));
   Object.assign(where, milestoneWhere(selectedMilestone));
+  // My Work (?mywork=1): only the issues you bid on or are working on.
+  const myWorkOn = parseMyWorkFilter(params[MY_WORK_PARAM]) && Boolean(userId);
+  if (myWorkOn && userId) {
+    const and = Array.isArray(where.AND) ? where.AND : where.AND ? [where.AND] : [];
+    where.AND = [...and, myWorkWhere(userId)];
+  }
   if (qParam?.trim()) {
     const q = escapeSearchQuery(boundSearchTerm(qParam));
     where.OR = [
@@ -555,6 +573,10 @@ export async function IssuesList({
         },
         category: { select: { id: true, name: true } },
         area: { select: { id: true, name: true } },
+        // #rewards: what solving it pays, in $, and whether the estimating is done.
+        reward: true,
+        rewardEstimateCount: true,
+        rewardFixedAt: true,
         _count: {
           select: {
             comments: true,
@@ -594,10 +616,31 @@ export async function IssuesList({
           ],
         }
       : {}),
+    // The Ideas list's more-filters widget: platform, who wrote it, and only mine.
+    ...(selectedPlatform ? { categoryId: selectedPlatform === PLATFORM_NONE ? null : selectedPlatform } : {}),
+    ...(ideaAuthor === "agents" ? { createdByAgentId: { not: null } } : ideaAuthor === "people" ? { createdByAgentId: null } : {}),
+    ...(mineFilter === "created" && userId ? { reporterId: userId } : {}),
   };
   // Rejected ideas (#idea-rejected), with the same scope and search as new
   // ones. Archived ideas (#idea-archive) show here too, labelled Archived.
   const rejectedIdeaWhere: Prisma.IdeaWhereInput = { ...ideaWhere, status: { in: ["rejected", "archived"] } };
+  // #project-links: the project's site and GitHub repository, and whether you can set them.
+  const [projectLinks, canEditProjectLinks] = await Promise.all([
+    loadOrEmpty("project links", () => prisma.project.findUnique({ where: { id: project.id }, select: { siteUrl: true, repoUrl: true } }), null),
+    tenantId && userId ? loadOrEmpty("project admin", () => isTenantAdmin(user, tenantId), false) : Promise.resolve(false),
+  ]);
+  // My Work shows only when you have work in this project: issues you bid on or hold, whatever their status.
+  const myWorkCount =
+    userId && !isDeletedView
+      ? await loadOrEmpty(
+          "my work",
+          () =>
+            prisma.bug.count({
+              where: { ...bugInTenant(tenantId), ...(projectId && !allProjects ? { projectId } : {}), isDeleted: false, ...myWorkWhere(userId) },
+            }),
+          0,
+        )
+      : 0;
   // The Ideas tab's counts show on every tab; drafts only while Ideas is open.
   const [ideasCount, rejectedIdeasCount, draftIds] = await Promise.all([
     tenantId && !isDeletedView ? loadOrEmpty("ideas tab", () => prisma.idea.count({ where: ideaWhere }), 0) : 0,
@@ -627,7 +670,7 @@ export async function IssuesList({
     ? await loadOrEmpty("ideas list", async () => {
         const rows = await prisma.idea.findMany({
           where: ideasView === "drafts" ? { ...ideaWhere, id: { in: draftIds } } : ideasView === "rejected" ? rejectedIdeaWhere : ideaWhere,
-          orderBy: [{ score: "desc" }, { createdAt: "desc" }, { id: "desc" }],
+          orderBy: getIdeaOrderBy(currentIdeaSort),
           skip: ideaPagination.skip,
           take: ideaPagination.take,
           select: {
@@ -806,6 +849,28 @@ export async function IssuesList({
     else next.delete("status");
     return listHref(next);
   };
+  // Turns My Work on or off on the current tab; the rest of the filters stay.
+  const myWorkHref = (() => {
+    const next = new URLSearchParams(currentQuery);
+    next.delete("page");
+    if (myWorkOn) next.delete(MY_WORK_PARAM);
+    else next.set(MY_WORK_PARAM, "1");
+    return listHref(next);
+  })();
+  // The toolbar's Filter menu: on the All tab, All / Rejected / Duplicates (pick one); then My Work (on or off).
+  const allTabFilters: ToolbarFilterOption[] = !isDeletedView && allSelected
+    ? ALL_FILTERS.map(({ value, label }) => ({ label, count: allFilterCount(value), href: statusHref(value), selected: statusParam === value }))
+    : [];
+  const myWorkFilter: ToolbarFilterOption[] = myWorkCount > 0 || myWorkOn ? [{ label: "My Work", count: myWorkCount, href: myWorkHref, selected: myWorkOn }] : [];
+  const filterGroups: ToolbarFilterGroup[] = [
+    ...(allTabFilters.length ? [{ label: "Show", options: allTabFilters }] : []),
+    ...(myWorkFilter.length ? [{ options: myWorkFilter }] : []),
+  ];
+  // What the Filter button names while closed: anything beyond the default "All".
+  const filterSummary = [
+    ...allTabFilters.filter((option) => option.selected && option.label !== "All").map((option) => option.label),
+    ...(myWorkOn ? ["My Work"] : []),
+  ].join(" · ");
   // Only a status tab is picked (no search or other filter): an empty list then
   // just means that tab is empty, so the empty state names the tab.
   const onlyStatusTab =
@@ -823,9 +888,6 @@ export async function IssuesList({
 
   // The stage the page is on, and the status inside it, for the stage bar and the list on the left.
   const currentStatus = ideasView === "rejected" ? REJECTED_IDEAS_STATUS : isIdeasView ? IDEAS_STATUS : statusParam;
-  // Requires confirmation: the left column counts confirmations, and the importance votes sit at the end of the row.
-  // The Open tab holds both of its substatuses (#substatus): each row shows its confirmations.
-  const confirmationsView = currentStatus === "open" && !isDeletedView;
   const stageIndex = isDeletedView ? -1 : STAGE_GROUPS.findIndex((group) => (group.statuses as readonly string[]).includes(currentStatus ?? ""));
   const statusCount = (value: string) =>
     value === IDEAS_STATUS ? ideasCount : value === REJECTED_IDEAS_STATUS ? rejectedIdeasCount : value === ERROR_STATUS ? errorCount : value === POSSIBLY_DELIVERED ? possiblyDeliveredCount : countForStatus(value);
@@ -868,23 +930,9 @@ export async function IssuesList({
             stageCounts={isDeletedView ? undefined : { confirming: confirmingCount, ready: readyCount }} />
         </Suspense>
         <div className="issues-actions flex flex-wrap items-center gap-2 print:hidden">
+          {/* The issue tabs' filter, beside the search: a standard Filter button and menu. */}
+          {!isIdeasView && filterGroups.length > 0 ? <ToolbarFilterMenu groups={filterGroups} summary={filterSummary} /> : null}
           {finishedWatched > 0 ? <UnwatchFinishedButton count={finishedWatched} /> : null}
-          {/* The workstream: the agents' work feed, drawn for people (#workstream). */}
-          <Link
-            href={projectPath(slug, "/workstream")}
-            title="Workstream: what agents are asked to do"
-            aria-label="Workstream: what agents are asked to do"
-            className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-zk-border bg-zk-surface text-zk-text2 hover:bg-zk-chip hover:text-zk-text focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-electric-blue"
-          >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <path d="M3 6h13M3 12h18M3 18h9" />
-              <circle cx="19" cy="6" r="2" />
-              <circle cx="15" cy="18" r="2" />
-            </svg>
-          </Link>
-          {isIdeasView ? (
-            <IdeasShowDoneButton showingDone={ideasView === "rejected"} openHref={ideasPath(slug)} doneHref={ideasPath(slug, "rejected")} />
-          ) : null}
           <IssuesToolsToggle
             active={Boolean(searchText || selectedPlatform || selectedTags.length > 0 || selectedMilestone)}
           />
@@ -899,29 +947,8 @@ export async function IssuesList({
   const listContent = (
     <div className="space-y-4">
 
-        {!isDeletedView && allSelected ? (
-          <nav aria-label="Filter all issues" className="issues-all-filters flex flex-wrap items-center justify-end gap-1.5">
-            <span className="mr-1 text-[13px] font-medium text-zk-muted">Filter by:</span>
-            {ALL_FILTERS.map(({ value, label }) => {
-              const on = statusParam === value;
-              return (
-                <Link
-                  key={value}
-                  href={statusHref(value)}
-                  aria-current={on ? "page" : undefined}
-                  className={`inline-flex h-8 items-center gap-1.5 rounded-full border px-3 text-[13px] font-medium focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zk-accent ${
-                    on
-                      ? "border-electric-blue-strong bg-electric-blue-strong text-white"
-                      : "border-zk-border bg-zk-surface text-zk-text2 hover:text-zk-text"
-                  }`}
-                >
-                  {label}
-                  <span className={`font-mono text-[11px] tabular-nums ${on ? "text-white/80" : "text-zk-muted"}`}>{allFilterCount(value)}</span>
-                </Link>
-              );
-            })}
-          </nav>
-        ) : null}
+        {/* #project-links: the site/code panel renders here (from ProjectLinks in the top right) while it is open. */}
+        <div id={PROJECT_LINKS_SLOT_ID} className="empty:hidden" />
 
         {milestoneSummary ? (
           <section aria-label={`Milestone ${milestoneSummary.title}`} className="rounded-[20px] border border-zk-border bg-zk-surface p-5">
@@ -941,6 +968,21 @@ export async function IssuesList({
           <IdeasList
             slug={slug}
             ideas={ideaRows}
+            sort={currentIdeaSort}
+            // The Ideas section's statuses (STAGE_GROUPS): New ideas and Rejected ideas.
+            filters={
+              <StatusFilterChips
+                filters={[
+                  { label: "New ideas", count: ideasCount, href: ideasPath(slug), selected: ideasView === "new" },
+                  { label: "Rejected", count: rejectedIdeasCount, href: ideasPath(slug, "rejected"), selected: ideasView === "rejected" },
+                ]}
+                more={
+                  <Suspense fallback={null}>
+                    <IdeasMoreFilters platforms={platforms} draftsHref={ideasPath(slug, "drafts")} />
+                  </Suspense>
+                }
+              />
+            }
             // Open ideas, none yet and no search: what Ziki is for and where to type (#ideas-welcome).
             welcome={ideasView === "new" && !qParam ? <IdeasWelcome projectId={project.id} projectName={project.name} /> : undefined}
             empty={
@@ -988,7 +1030,7 @@ export async function IssuesList({
             }
             clearHref={issuesPath(slug, statusParam ?? ALL_STATUS)}
             createHref={newIssueHref(slug, returnTo)}
-            showClear={Boolean(!onlyStatusTab && (qParam || statusParam || tagsParam || selectedPlatform || selectedMilestone))}
+            showClear={Boolean((myWorkOn || !onlyStatusTab) && (qParam || statusParam || tagsParam || selectedPlatform || selectedMilestone || myWorkOn))}
             showCreate={true}
           />
         ) : (
@@ -1016,14 +1058,18 @@ export async function IssuesList({
             <div className="issues-table relative">
               <div>
                 <div className="issues-table-heading">
-                  {confirmationsView ? (
-                    <span className="w-[52px] shrink-0 text-center">Bids</span>
-                  ) : (
-                    <span className="w-[76px] shrink-0 text-center">Importance</span>
-                  )}
-                  <span className="min-w-0 flex-1">Issue</span>
-                  <span className="issues-status-cell">Status</span>
-                  {confirmationsView ? <span className="issues-vote-end">Importance</span> : null}
+                  {/* Each column sorts the list on the server; the choice is kept in a cookie (#column-sort). */}
+                  {/* #rewards: what solving each issue pays, in $; sorts highest first, then lowest. */}
+                  <span className="issues-vote w-[76px] shrink-0">
+                    <SortHeader label="Reward" current={currentSort} first="reward" second="reward_low" cookie={ISSUE_SORT_COOKIE} />
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <SortHeader label="Issue" current={currentSort} first="title" second="title_desc" firstDescending={false} cookie={ISSUE_SORT_COOKIE} />
+                  </span>
+                  <span className="issues-status-cell justify-center">Bids</span>
+                  <span className="issues-vote-end">
+                    <SortHeader label="Importance" current={currentSort} first="importance" second="least_important" cookie={ISSUE_SORT_COOKIE} />
+                  </span>
                   <span className="w-10" aria-hidden="true" />
                 </div>
                 <ul>
@@ -1058,13 +1104,9 @@ export async function IssuesList({
                           index < bugs.length - 1 ? "border-b border-zk-divider" : ""
                         }`}
                       >
-                        {confirmationsView ? (
-                          <div className="w-[52px] shrink-0">
-                            <BidsVoteBadge count={bug._count.bids} />
-                          </div>
-                        ) : (
-                          <div className="issues-vote w-[76px] shrink-0">{importance}</div>
-                        )}
+                        <div className="issues-vote w-[76px] shrink-0">
+                          <RewardBadge reward={Number(bug.reward)} estimates={bug.rewardEstimateCount} fixed={Boolean(bug.rewardFixedAt)} />
+                        </div>
                         <Link
                           href={issueHref(bug)}
                           data-issue-link=""
@@ -1115,20 +1157,17 @@ export async function IssuesList({
                               ) : null}
                               {bug.category ? <span>{bug.category.name}</span> : null}
                               <RowAge date={currentSort === "newest" ? bug.createdAt : bug.updatedAt} sort={currentSort === "newest" ? "newest" : "updated"} />
-                              {/* Below md (768px) the status column is hidden, so the status rides at the end of this line. */}
-                              <span className="inline-flex min-w-0 md:sr-only">{rowStatus}</span>
+                              {/* The status rides at the end of this line; the column beside the title holds the bids. */}
+                              <span className="inline-flex min-w-0">{rowStatus}</span>
                             </span>
                             {snippets.has(bug.id) ? <SearchSnippet snippet={snippets.get(bug.id)!} /> : null}
                             {signals.has(bug.id) ? <DeliverySignalsLine signals={signals.get(bug.id)!} /> : null}
                           </span>
                         </Link>
-                        <span className="issues-status-cell" aria-hidden="true">{rowStatus}</span>
-                        {confirmationsView ? (
-                          // A plain number here: the box in the first column is the confirmations.
-                          <div className="issues-vote issues-vote-end shrink-0 text-center font-mono text-[13px] font-semibold tabular-nums text-zk-text2" aria-label={`Importance ${bug.voteCount}`} title={`Importance ${bug.voteCount}`} data-testid="importance-count">
-                            {bug.voteCount}
-                          </div>
-                        ) : null}
+                        <span className="issues-status-cell justify-center">
+                          <BidsVoteBadge count={bug._count.bids} />
+                        </span>
+                        <div className="issues-vote issues-vote-end shrink-0">{importance}</div>
                         <span
                           className={`w-10 shrink-0 items-center justify-end gap-2 ${
                             isWatchingView && !bug.isDeleted ? "flex" : "hidden lg:flex"
@@ -1204,12 +1243,23 @@ export async function IssuesList({
         />
       ) : null}
       <div className="absolute right-0 top-0 flex items-center gap-2">
-        <ProjectNotesLink slug={slug} />
         <PlatformMenu
           iconOnly
           tabs={platformTabs.map((tab) => ({ ...tab, href: platformHref(tab.id) }))}
           current={selectedPlatform}
         />
+        {/* The project's settings icon, at the far right: the site and code URLs, notes, and the settings page. */}
+        {projectLinks && !isDeletedView ? (
+          <ProjectLinks
+            slug={slug}
+            siteUrl={projectLinks.siteUrl}
+            repoUrl={projectLinks.repoUrl}
+            canEdit={canEditProjectLinks}
+            notesHref={`/${encodeURIComponent(slug)}/notes`}
+            settingsHref={`/projects/${encodeURIComponent(slug)}/settings`}
+            askOnLoad={isIdeasView}
+          />
+        ) : null}
       </div>
     </div>
     {/* The Ideas panel is narrower and centred, so each idea's status sits close to it. */}
