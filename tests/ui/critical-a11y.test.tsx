@@ -7,6 +7,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import userEvent from "@testing-library/user-event";
 import { labelInNameMismatches } from "@/lib/a11y/label-in-name";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { MarketingSettings } from "@/components/marketing/settings/settings";
 import { EntryReplyForm } from "@/components/entry-reply-form";
 import { CreateBugForm } from "@/components/create-issue-form";
 import { UserSearch } from "@/components/user-search";
@@ -18,15 +19,8 @@ import { TasksBoard } from "@/components/marketing/tasks/tasks-board";
 import { TASK_TABS } from "@/components/marketing/tasks/model";
 import { Proposals } from "@/components/marketing/proposals/proposals";
 import type { ProposalItem, ProposalsResult } from "@/components/marketing/proposals/model";
-import { MarketingSettings } from "@/components/marketing/settings/settings";
 import { createWebhookAction, listWebhooksAction } from "@/app/actions/webhooks";
 
-vi.mock("@/app/actions/issues", () => ({
-  addCommentAction: vi.fn(),
-  createBugAction: vi.fn(),
-  toggleVoteAction: vi.fn(),
-}));
-vi.mock("@/app/(app)/[project]/marketing/library/actions", () => ({ refreshLibrary: vi.fn() }));
 vi.mock("@/app/(app)/[project]/marketing/settings/actions", () => ({
   createMarketingIssueTypeAction: vi.fn(),
   deleteMarketingIssueTypeAction: vi.fn(),
@@ -35,6 +29,12 @@ vi.mock("@/app/(app)/[project]/marketing/settings/actions", () => ({
   updateMarketingRevisionLimitAction: vi.fn(),
   updateMarketingBriefAction: vi.fn(),
 }));
+vi.mock("@/app/actions/issues", () => ({
+  addCommentAction: vi.fn(),
+  createBugAction: vi.fn(),
+  toggleVoteAction: vi.fn(),
+}));
+vi.mock("@/app/(app)/[project]/marketing/library/actions", () => ({ refreshLibrary: vi.fn() }));
 vi.mock("@/app/actions/idea-verdicts", () => ({
   giveIdeaVerdictAction: vi.fn(),
   quickIdeaVerdictAction: vi.fn(),
