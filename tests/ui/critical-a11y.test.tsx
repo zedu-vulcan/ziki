@@ -174,6 +174,7 @@ describe("component accessibility (axe)", () => {
     const { container } = render(<Proposals slug="acme" projectName="Acme" view="open" initial={initial} />);
     await expectNoA11yViolations(container);
   });
+
   it("VoteButton has no violations", async () => {
     const { container } = render(<VoteButton bugId="b1" voteCount={3} />);
     await expectNoA11yViolations(container);
