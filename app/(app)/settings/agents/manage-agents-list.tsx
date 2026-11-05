@@ -1,6 +1,8 @@
 "use client";
 
 import { useState } from "react";
+import { useTransition } from "react";
+import { setAgentPaused } from "@/app/actions/agent-steering";
 import Link from "next/link";
 import type { AgentLevel } from "@prisma/client";
 import { AGENT_LEVEL_LABELS } from "@/lib/agents/levels";
@@ -26,6 +28,7 @@ export type ManageAgentItem = {
   burstUntil: string | null;
   createdAt: string;
   revokedAt: string | null;
+  pausedAt: string | null;
   personal: boolean;
   /** The owner's avatar pick; null wears the automatic robot. */
   avatar: string | null;
@@ -59,6 +62,7 @@ export function ManageAgentsList({
   canSetBurst: boolean;
 }) {
   const [query, setQuery] = useState("");
+  const [pausePending, startPauseTransition] = useTransition();
 
   const visible = agents.filter((agent) => {
     if (!query.trim()) return true;
@@ -160,6 +164,19 @@ export function ManageAgentsList({
                         <span className="inline-flex items-center rounded-full bg-zk-bad-bg px-2.5 py-0.5 text-xs font-bold text-zk-bad-fg">
                           Revoked
                         </span>
+                      ) : null}
+                      {!agent.revokedAt ? (
+                        <button
+                          type="button"
+                          disabled={pausePending}
+                          onClick={() => startPauseTransition(async () => {
+                            const result = await setAgentPaused(agent.id, !agent.pausedAt);
+                            if (result.ok) window.location.reload();
+                          })}
+                          className="rounded-full border border-zk-border px-3 py-1 text-xs font-semibold text-zk-text hover:bg-zk-chip disabled:opacity-50"
+                        >
+                          {agent.pausedAt ? "Resume agent" : "Pause agent"}
+                        </button>
                       ) : null}
                       {agent.model ? <span className="text-sm text-zk-muted">{agent.model}</span> : null}
                     </div>

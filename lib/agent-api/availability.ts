@@ -40,6 +40,7 @@ function claimSweepWhere(
     status: "active",
     releasedAt: null,
     waitingOnOwnerSince: null,
+    agent: { pausedAt: null },
     bug: {
       isDeleted: false,
       status: "in_progress",
@@ -70,6 +71,7 @@ export async function heartbeatClaim(agent: AgentContext, projectId: string, iss
     if (!claim) throw new IssueApiError(409, "This issue has no current claim.");
     if (claim.agentId !== agent.agentId) throw new IssueApiError(403, "Only the claiming agent can send a heartbeat.");
     if (claim.status !== "active") throw new IssueApiError(409, "Only active claims accept heartbeats.");
+    if (agent.pausedAt) return claim;
     return tx.issueClaim.update({ where: { id: claim.id }, data: { lastHeartbeatAt: new Date() } });
   });
 }
@@ -106,7 +108,7 @@ async function releaseClaimIfStale(
     await tx.$queryRaw`SELECT "id" FROM "Bug" WHERE "id" = ${claim.bugId} FOR NO KEY UPDATE`;
     // Re-read after locking: a heartbeat or another sweep may have won the race.
     const fresh = await tx.issueClaim.findFirst({ where: { id: claim.id, status: "active", releasedAt: null,
-      bug: { projectId, tenantId, isDeleted: false, status: "in_progress" } },
+      agent: { pausedAt: null }, bug: { projectId, tenantId, isDeleted: false, status: "in_progress" } },
       include: { bug: { select: { pullRequestUrl: true, project: { select: { ownerWaitCapMinutes: true } } } } } });
     const now = new Date();
     if (!fresh) return { released: false, opened: false };

@@ -35,6 +35,7 @@ export async function GET(req: NextRequest) {
         owner_id: agent.ownerId,
         tenant_id: agent.tenantId,
         level: agent.level,
+        paused: agent.pausedAt !== null,
         project_id: agent.projectId ?? null,
         project_slug: agent.projectSlug ?? null,
         // #work-feed: the one URL to watch. A key for every project finds each one's under `projects`.

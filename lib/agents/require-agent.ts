@@ -33,6 +33,7 @@ export type AgentContext = {
   burst: boolean;
   /** When the higher budget lapses; null means no expiry (#596). */
   burstUntil?: Date | null;
+  pausedAt?: Date | null;
   /** The key used for this call, so rotation can revoke exactly it. */
   keyId: string;
   /**
@@ -117,6 +118,7 @@ export async function requireAgent(request: HeaderSource): Promise<AgentContext>
           burst: true,
           burstUntil: true,
           revokedAt: true,
+          pausedAt: true,
           owner: { select: { role: true, memberships: { select: { tenantId: true } } } },
         },
       },
@@ -156,6 +158,7 @@ export async function requireAgent(request: HeaderSource): Promise<AgentContext>
     ownerRole: agent.owner.role ?? null,
     burst: agent.burst,
     burstUntil: agent.burstUntil ?? null,
+    pausedAt: agent.pausedAt ?? null,
     keyId: key.id,
     projectId: key.projectId,
     projectSlug: key.project?.slug ?? null,

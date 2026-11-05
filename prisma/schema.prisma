@@ -1017,6 +1017,8 @@ model Agent {
   /// next request; no cleanup job flips `burst` off.
   burstUntil           DateTime?
   revokedAt            DateTime?
+  /// Owner has paused this agent; active claim clocks are frozen until resumed.
+  pausedAt             DateTime?
   /// Set when this is the person's personal agent for that project.
   /// Created automatically so they can copy a key without registering one.
   defaultProjectId     String?

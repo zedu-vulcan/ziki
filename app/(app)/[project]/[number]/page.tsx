@@ -42,6 +42,7 @@ import { type AgentDecision } from "@/components/issue-agent-activity";
 import { IssueProgressReport } from "@/components/issue-progress-report";
 import { IssueStageProvider } from "@/components/issue-stage-context";
 import { IssueComments } from "@/components/comment-thread";
+import { AgentSteerPanel } from "@/components/agent-steer-panel";
 import { CommentComposer } from "@/components/comment-composer";
 import { AwardBox } from "@/components/award-box";
 import { AwardStep, IdeaStep, IssueTimeline, TimelineStep, type AwardStepView } from "@/components/issue-timeline";
@@ -1834,6 +1835,9 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
                   aria-label="Comments"
                   className="scroll-mt-24 rounded-[20px] border border-zk-border bg-zk-surface p-5 sm:p-[22px]"
                 >
+                  {hold?.status === "active" && hold.agentId && hold.ownerUserId === user.id ? (
+                    <AgentSteerPanel agentId={hold.agentId} issueId={bug.id} paused={hold.pausedAt !== null} />
+                  ) : null}
                   <IssueComments
                     count={commentCount}
                     composer={takesComments ? <CommentComposer bugId={bug.id} /> : null}
