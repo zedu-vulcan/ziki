@@ -687,7 +687,8 @@ Start a pairing request. No `Authorization` header is needed.
   "name": "Ada's Claude",
   "model": "Claude",
   "level": "working",
-  "instructions": "Focus on desktop bugs today. Use the staging URL."
+  "instructions": "Focus on desktop bugs today. Use the staging URL.",
+  "brief": null
 }
 ```
 
@@ -4265,7 +4266,7 @@ Answers `204`. `409 type_in_use` while any marketing task uses the type: retire 
 
 ### The project brief
 
-[`GET /api/v1/agents/me`](#get-apiv1agentsme) and the marketing work feed return the brief for marketing work. Read it before you propose or deliver anything:
+**Live.** [`GET /api/v1/agents/me`](#get-apiv1agentsme) and the marketing work feed return the brief for marketing work. Read it before you propose or deliver anything:
 
 ```json
 {
@@ -4279,4 +4280,4 @@ Answers `204`. `409 type_in_use` while any marketing task uses the type: retire 
 }
 ```
 
-`brief` is `null` when the key isn't tied to one project or the project has no brief yet. A field nobody has filled in is `null`.
+`brief` is `null` when the key isn't tied to one project or the project has no brief yet. A field nobody has filled in is `null`. Workspace owners and admins write it in the project's marketing settings.

@@ -16,6 +16,8 @@ const typeFindMany = vi.hoisted(() => vi.fn());
 const typeCreate = vi.hoisted(() => vi.fn());
 const typeDelete = vi.hoisted(() => vi.fn());
 const bugCount = vi.hoisted(() => vi.fn());
+const briefFindUnique = vi.hoisted(() => vi.fn());
+const briefUpsert = vi.hoisted(() => vi.fn());
 
 vi.mock("@/auth", () => ({ auth: vi.fn() }));
 vi.mock("next-auth", () => ({ default: vi.fn() }));
@@ -49,6 +51,7 @@ vi.mock("@/lib/prisma", () => ({
     user: { findUnique },
     issueType: { findFirst: typeFindFirst, findMany: typeFindMany, create: typeCreate, delete: typeDelete },
     bug: { count: bugCount },
+    projectBrief: { findUnique: briefFindUnique, upsert: briefUpsert },
     $transaction: transaction,
   },
 }));
@@ -63,7 +66,63 @@ import { GET, PATCH } from "@/app/api/v1/projects/[id]/marketing-settings/route"
 import { GET as MarketingGET, PATCH as MarketingPATCH } from "@/app/api/v1/marketing/settings/route";
 import { GET as TypesGET, POST as TypesPOST } from "@/app/api/v1/marketing/task-types/route";
 import { DELETE as TypeDELETE, PATCH as TypePATCH } from "@/app/api/v1/marketing/task-types/[id]/route";
+import { readProjectBrief, saveProjectBrief } from "@/lib/marketing/brief";
 import { NextRequest } from "next/server";
+
+describe("The project brief (M-API-8)", () => {
+  const stored = { product: "Ziki", audience: null, website: null, currentFocus: "First ten teams", outOfScope: null };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    briefFindUnique.mockResolvedValue(null);
+    transaction.mockImplementation(async (run: (tx: unknown) => unknown) =>
+      run({ projectBrief: { upsert: briefUpsert }, projectAuditEvent: { create: auditCreate } }),
+    );
+  });
+
+  it("gives agents the contract's field names, and null for a field nobody filled in", async () => {
+    briefFindUnique.mockResolvedValue(stored);
+    await expect(readProjectBrief("p1")).resolves.toEqual({
+      product: "Ziki", audience: null, website: null, current_focus: "First ten teams", out_of_scope: null,
+    });
+  });
+
+  it("gives agents no brief when none exists or every field is blank", async () => {
+    await expect(readProjectBrief("p1")).resolves.toBeNull();
+    briefFindUnique.mockResolvedValue({ product: null, audience: null, website: null, currentFocus: null, outOfScope: null });
+    await expect(readProjectBrief("p1")).resolves.toBeNull();
+  });
+
+  it("stores blanks as nothing and audits which fields changed", async () => {
+    await saveProjectBrief("tenant-1", "p1", "user-1", {
+      product: " Ziki ", audience: "", website: "", currentFocus: "First ten teams", outOfScope: "",
+    });
+    expect(briefUpsert).toHaveBeenCalledWith({
+      where: { projectId: "p1" },
+      update: stored,
+      create: { projectId: "p1", ...stored },
+    });
+    expect(auditCreate).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        tenantId: "tenant-1", projectId: "p1", actorUserId: "user-1", action: "marketing.brief.updated",
+        changes: { fields: ["product", "currentFocus"] },
+      }),
+    });
+  });
+
+  it("writes nothing when nothing changed", async () => {
+    briefFindUnique.mockResolvedValue(stored);
+    await saveProjectBrief("tenant-1", "p1", "user-1", { product: "Ziki", currentFocus: "First ten teams" });
+    expect(briefUpsert).not.toHaveBeenCalled();
+    expect(auditCreate).not.toHaveBeenCalled();
+  });
+
+  it("refuses a website that isn't a full link, and an unknown field", async () => {
+    await expect(saveProjectBrief("tenant-1", "p1", "user-1", { website: "javascript:alert(1)" })).rejects.toThrow("full http or https link");
+    await expect(saveProjectBrief("tenant-1", "p1", "user-1", { points: 5 })).rejects.toThrow();
+    expect(briefUpsert).not.toHaveBeenCalled();
+  });
+});
 
 describe("Marketing task types API (M-API-7)", () => {
   const url = "http://localhost/api/v1/marketing/task-types";

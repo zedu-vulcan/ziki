@@ -806,6 +806,7 @@ model Project {
   workflow              ProjectWorkflow?
   mistakes              AgentMistake[]
   notes                 ProjectNotes?
+  brief                 ProjectBrief?
   noteRevisions         ProjectNoteRevision[]
   noteComments          ProjectNoteComment[]
 
@@ -2300,6 +2301,19 @@ enum MistakeCategory {
 }
 
 /// Official guidance, separate from agent discussion. Version 0 means absent.
+/// The marketing brief agents read before proposing or delivering (M-API-8).
+/// Returned on `GET /api/v1/agents/me` and the marketing work feed.
+model ProjectBrief {
+  projectId    String   @id
+  product      String?
+  audience     String?
+  website      String?
+  currentFocus String?
+  outOfScope   String?
+  updatedAt    DateTime @updatedAt
+  project      Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+}
+
 model ProjectNotes {
   projectId     String   @id
   body          String

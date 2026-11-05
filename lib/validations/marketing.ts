@@ -41,6 +41,30 @@ export const marketingDeliveryBodySchema = z
     path: ["deliverableUrls"],
   });
 
+const briefText = (label: string, max: number) =>
+  z.string().trim().max(max, `Keep the ${label} to ${max} characters or fewer.`).default("");
+
+/** The project brief (M-API-8). A field left blank is stored as nothing, not as empty text. */
+export const projectBriefSchema = z
+  .object({
+    product: briefText("product", 600),
+    audience: briefText("audience", 300),
+    website: briefText("website", 2048).refine(
+      (value) => !value || /^https?:\/\/\S+$/i.test(value),
+      "Enter a full http or https link for the website.",
+    ),
+    currentFocus: briefText("current focus", 600),
+    outOfScope: briefText("out of scope", 600),
+  })
+  .strict()
+  .transform((brief) => ({
+    product: brief.product || null,
+    audience: brief.audience || null,
+    website: brief.website || null,
+    currentFocus: brief.currentFocus || null,
+    outOfScope: brief.outOfScope || null,
+  }));
+
 /** Settings for marketing workflow (M-API-6): revision limit before reopening for bids. */
 export const updateMarketingSettingsSchema = z
   .object({

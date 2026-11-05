@@ -2,6 +2,7 @@ import { trackFilter } from "@/lib/marketing/track";
 import { PRODUCT_TRACK } from "@/lib/marketing/track";
 import { createHash } from "node:crypto";
 import { prisma } from "@/lib/prisma";
+import { readProjectBrief, type AgentBrief } from "@/lib/marketing/brief";
 import type { AgentContext } from "@/lib/agents/require-agent";
 import { hasLevel } from "@/lib/agents/levels";
 import { reviewerConflict, type ReviewedBug } from "@/lib/agents/independence";
@@ -138,13 +139,7 @@ export type WorkFeed = {
   workUrl: string;
   pollAfterSeconds: number;
   track: WorkTrack;
-  brief?: {
-    product: string;
-    audience: string;
-    website: string;
-    current_focus: string;
-    out_of_scope: string;
-  } | null;
+  brief?: AgentBrief | null;
   /** What Ziki asks of the agent right now, in plain words. */
   ask: string[];
   inbox: { unread: number; path: string };
@@ -1886,7 +1881,7 @@ export async function workFeed(agent: AgentContext, project: { id: string; slug:
     workUrl: absoluteUrl(track === "marketing" ? `/${project.slug}/work?track=marketing` : `/${project.slug}/work`),
     pollAfterSeconds: WORK_POLL_SECONDS,
     track,
-    ...(track === "marketing" ? { brief: null } : {}),
+    ...(track === "marketing" ? { brief: await readProjectBrief(project.id) } : {}),
     ask,
     inbox: { unread: mine.unread, path: "/api/v1/inbox?unread=1" },
     counts,

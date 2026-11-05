@@ -342,7 +342,7 @@ describe("workFeed marketing track response shape and items", () => {
     expect(feed.workUrl).not.toContain("track=marketing");
   });
 
-  it("returns marketing work feed with track: marketing, brief: null, and marketing workUrl", async () => {
+  it("returns marketing work feed with track: marketing, no brief until one is written, and marketing workUrl", async () => {
     clearWorkCache();
     const feed = await workFeed(agent("working"), { id: "p1", slug: "acme", name: "Acme" }, "marketing");
     expect(feed.track).toBe("marketing");

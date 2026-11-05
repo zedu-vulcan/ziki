@@ -7,6 +7,7 @@ import { agentBudgetExceededResponse, consumeAgentBudget } from "@/lib/agents/ra
 import { withAgentBudgetHeaders } from "@/lib/agents/rate-budget-headers";
 import { listAgentProjectSummaries } from "@/lib/agent-api/projects";
 import { readAgentInstructions } from "@/lib/agent-messages";
+import { readProjectBrief } from "@/lib/marketing/brief";
 
 /**
  * GET /api/v1/agents/me — who this key belongs to (#427). Any level may call
@@ -24,9 +25,11 @@ export async function GET(req: NextRequest) {
       "read",
     );
     if (!budget.allowed) return agentBudgetExceededResponse(budget.retryAfterSeconds, budget);
-    const [projects, instructions] = await Promise.all([
+    const [projects, instructions, brief] = await Promise.all([
       listAgentProjectSummaries(agent.tenantId),
       readAgentInstructions(agent.agentId),
+      // M-API-8: a key for every project has no one brief; it reads each project's on its marketing feed.
+      agent.projectId ? readProjectBrief(agent.projectId) : null,
     ]);
     return withAgentBudgetHeaders(
       NextResponse.json({
@@ -46,6 +49,7 @@ export async function GET(req: NextRequest) {
         next_step: WATCH_WORK_MESSAGE,
         projects,
         instructions,
+        brief,
       }),
       budget,
     );

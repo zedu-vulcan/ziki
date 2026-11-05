@@ -1114,6 +1114,14 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
         : null,
     };
 
+    // The brief's focus and site, when it has them (M-API-8); otherwise the project's own.
+    const marketingBrief = await prisma.projectBrief.findUnique({
+      where: { projectId: bug.projectId },
+      select: { currentFocus: true, website: true },
+    });
+    const marketingFocus = marketingBrief?.currentFocus ?? bug.project.goal;
+    const marketingSite = marketingBrief?.website ?? bug.project.siteUrl;
+
     return (
       <MarketingTaskDetail
         bug={{
@@ -1132,8 +1140,8 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
           project: {
             slug: bug.project.slug,
             name: bug.project.name,
-            goal: bug.project.goal,
-            siteUrl: bug.project.siteUrl,
+            goal: marketingFocus,
+            siteUrl: marketingSite,
           },
           idea: bug.idea
             ? {
@@ -1168,7 +1176,7 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
         escalationsSlot={<IssueEscalations escalations={escalations} />}
         descriptionSlot={
           <div className="flex flex-col gap-5">
-            {bug.project.goal ? (
+            {marketingFocus ? (
               <div className="flex items-start gap-3 rounded-xl border border-zk-info-fg/30 bg-zk-info-bg/40 p-3.5 text-sm text-zk-text">
                 <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-zk-info-fg text-white">
                   <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -1181,9 +1189,9 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
                     <span className="font-bold uppercase tracking-wider text-[11px] text-zk-info-fg">
                       {bug.project.name ? `${bug.project.name} Focus` : "Campaign Focus"}
                     </span>
-                    {bug.project.siteUrl ? (
+                    {marketingSite ? (
                       <a
-                        href={bug.project.siteUrl}
+                        href={marketingSite}
                         target="_blank"
                         rel="noreferrer"
                         className="inline-flex items-center gap-1 text-xs font-semibold text-zk-accent hover:underline"
@@ -1192,7 +1200,7 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
                       </a>
                     ) : null}
                   </div>
-                  <p className="mt-1 font-medium leading-relaxed">{bug.project.goal}</p>
+                  <p className="mt-1 font-medium leading-relaxed">{marketingFocus}</p>
                 </div>
               </div>
             ) : null}

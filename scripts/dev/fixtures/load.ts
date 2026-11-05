@@ -28,6 +28,7 @@ type Row = Record<string, unknown>;
 type Fixtures = {
   tenant: { slug: string; name: string };
   project: { slug: string; name: string; repoUrl: string };
+  brief: { product: string; audience: string; website: string; currentFocus: string; outOfScope: string };
   login: { email: string; password: string };
 } & Record<string, Row[]>;
 
@@ -102,7 +103,7 @@ export async function loadFixtures(options: { db?: PrismaClient; addExistingUser
       // so they start at 1 and the rows go in in number order.
       data: { id: TENANT_ID, slug: fx.tenant.slug, name: fx.tenant.name, description: "Local fixtures: issues in every state, from scripts/dev/fixtures.", nextIssueNumber: 1, nextIdeaNumber: 1 },
     });
-    await db.project.create({ data: { id: PROJECT_ID, tenantId: TENANT_ID, slug: fx.project.slug, name: fx.project.name, repoUrl: fx.project.repoUrl, workflow: { create: {} } } });
+    await db.project.create({ data: { id: PROJECT_ID, tenantId: TENANT_ID, slug: fx.project.slug, name: fx.project.name, repoUrl: fx.project.repoUrl, workflow: { create: {} }, brief: { create: fx.brief } } });
     await db.projectArea.createMany({ data: fx.areas.map((a) => ({ id: String(a.id), projectId: PROJECT_ID, name: String(a.name), slug: String(a.id).replace(/^fx-area-/, "") })) });
     await db.membership.createMany({ data: fx.memberships.map((m) => withUsers({ ...m, tenantId: TENANT_ID })) as never });
     await db.agent.createMany({ data: fx.agents.map((a) => withUsers({ ...a, tenantId: TENANT_ID, createdAt: new Date(now - 60 * 24 * 60_000) })) as never });

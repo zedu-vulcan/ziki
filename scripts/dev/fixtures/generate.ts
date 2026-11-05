@@ -44,6 +44,13 @@ const hex = (n: number) => Array.from({ length: n }, () => "0123456789abcdef"[in
 export const FIXTURE_PREFIX = "fx";
 export const FIXTURE_TENANT = { slug: "demo", name: "Demo" };
 export const FIXTURE_PROJECT = { slug: "demo", name: "Demo", repoUrl: "https://github.com/example/demo-app" };
+export const FIXTURE_BRIEF = {
+  product: "Demo, a task app for small teams.",
+  audience: "Team leads at companies of 5 to 50 people.",
+  website: "https://example.com",
+  currentFocus: "Getting the first hundred teams to invite a colleague.",
+  outOfScope: "Paid advertising.",
+};
 /** The workspace owner you sign in as locally. */
 export const FIXTURE_LOGIN = { email: "demo@fixtures.local", password: "ziki-demo-password" };
 
@@ -891,6 +898,7 @@ const out = {
   generatedBy: "scripts/dev/fixtures/generate.ts",
   tenant: FIXTURE_TENANT,
   project: FIXTURE_PROJECT,
+  brief: FIXTURE_BRIEF,
   login: FIXTURE_LOGIN,
   ...rows,
 };

@@ -9,6 +9,13 @@
   "name": "Demo",
   "repoUrl": "https://github.com/example/demo-app"
  },
+ "brief": {
+  "product": "Demo, a task app for small teams.",
+  "audience": "Team leads at companies of 5 to 50 people.",
+  "website": "https://example.com",
+  "currentFocus": "Getting the first hundred teams to invite a colleague.",
+  "outOfScope": "Paid advertising."
+ },
  "login": {
   "email": "demo@fixtures.local",
   "password": "ziki-demo-password"

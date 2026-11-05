@@ -18,7 +18,7 @@ import type { ProjectContext } from "@/lib/project-route";
  * read-only.
  */
 export async function readMarketingSettings({ project, tenantId, user }: ProjectContext): Promise<MarketingSettingsData> {
-  const [settings, canManage, typeRows, usageRows] = await Promise.all([
+  const [settings, canManage, typeRows, usageRows, brief] = await Promise.all([
     getMarketingSettings(tenantId, project.id),
     isTenantAdmin(user, tenantId),
     prisma.issueType.findMany({
@@ -31,6 +31,7 @@ export async function readMarketingSettings({ project, tenantId, user }: Project
       where: { tenantId, track: "marketing", typeId: { not: null } },
       _count: { _all: true },
     }),
+    prisma.projectBrief.findUnique({ where: { projectId: project.id } }),
   ]);
 
   const usage = Object.fromEntries(usageRows.map((row) => [row.typeId as string, row._count._all]));
@@ -42,5 +43,16 @@ export async function readMarketingSettings({ project, tenantId, user }: Project
     usage: usage[row.id] ?? 0,
   }));
 
-  return { revisionLimit: settings.revisionLimit, canManage, types };
+  return {
+    revisionLimit: settings.revisionLimit,
+    canManage,
+    types,
+    brief: {
+      product: brief?.product ?? "",
+      audience: brief?.audience ?? "",
+      website: brief?.website ?? "",
+      currentFocus: brief?.currentFocus ?? "",
+      outOfScope: brief?.outOfScope ?? "",
+    },
+  };
 }

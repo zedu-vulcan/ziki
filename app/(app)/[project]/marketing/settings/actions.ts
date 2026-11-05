@@ -3,8 +3,10 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 
+import type { MarketingBrief } from "@/components/marketing/settings/model";
 import { IssueApiError } from "@/lib/agent-api/errors";
 import { expireTag, TAGS } from "@/lib/cache-tags";
+import { saveProjectBrief } from "@/lib/marketing/brief";
 import { assertMarketingSettingsAccess, updateMarketingSettings } from "@/lib/marketing/settings";
 import {
   createMarketingTaskType,
@@ -102,6 +104,17 @@ async function applyChange(slug: string, change: () => Promise<unknown>): Promis
   }
   revalidateMarketing(slug);
   return { ok: true };
+}
+
+/** Save the project brief agents read (M-UI-7 for M-API-8). */
+export async function updateMarketingBriefAction(
+  slug: string,
+  brief: MarketingBrief,
+): Promise<MarketingSettingsActionResult> {
+  const admin = await requireSettingsAdmin(slug);
+  if ("error" in admin) return admin;
+
+  return applyChange(slug, () => saveProjectBrief(admin.tenantId, admin.projectId, admin.userId, brief));
 }
 
 /** Create a marketing task type (M-UI-7 for M-API-7). */
