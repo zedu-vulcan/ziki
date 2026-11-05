@@ -173,6 +173,7 @@ describe("component accessibility (axe)", () => {
     const member = render(<MarketingSettings slug="acme" projectName="Acme" data={{ ...data, canManage: false }} />);
     await expectNoA11yViolations(member.container);
   });
+
   it("VoteButton has no violations", async () => {
     const { container } = render(<VoteButton bugId="b1" voteCount={3} />);
     await expectNoA11yViolations(container);
