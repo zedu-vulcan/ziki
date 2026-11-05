@@ -125,6 +125,20 @@ describe("component accessibility (axe)", () => {
     }] }} />);
     await expectNoA11yViolations(container);
   });
+  it("keeps marketing settings accessible, for an admin and read-only for a member", async () => {
+    const data = {
+      revisionLimit: 2,
+      canManage: true,
+      types: [{ id: "blog", name: "Blog post", description: null, isActive: true, usage: 1 }],
+      brief: { product: "Acme", audience: "", website: "https://example.com", currentFocus: "", outOfScope: "" },
+    };
+    const admin = render(<MarketingSettings slug="acme" projectName="Acme" data={data} />);
+    await expectNoA11yViolations(admin.container);
+    admin.unmount();
+    const member = render(<MarketingSettings slug="acme" projectName="Acme" data={{ ...data, canManage: false }} />);
+    await expectNoA11yViolations(member.container);
+  });
+
   it("keeps the marketing tasks board's stages, steps and rows accessible", async () => {
     const { container } = render(<TasksBoard slug="acme" board={{
       tab: TASK_TABS[1],
@@ -160,20 +174,6 @@ describe("component accessibility (axe)", () => {
     const { container } = render(<Proposals slug="acme" projectName="Acme" view="open" initial={initial} />);
     await expectNoA11yViolations(container);
   });
-  it("keeps marketing settings accessible, for an admin and read-only for a member", async () => {
-    const data = {
-      revisionLimit: 2,
-      canManage: true,
-      types: [{ id: "blog", name: "Blog post", description: null, isActive: true, usage: 1 }],
-      brief: { product: "Acme", audience: "", website: "https://example.com", currentFocus: "", outOfScope: "" },
-    };
-    const admin = render(<MarketingSettings slug="acme" projectName="Acme" data={data} />);
-    await expectNoA11yViolations(admin.container);
-    admin.unmount();
-    const member = render(<MarketingSettings slug="acme" projectName="Acme" data={{ ...data, canManage: false }} />);
-    await expectNoA11yViolations(member.container);
-  });
-
   it("VoteButton has no violations", async () => {
     const { container } = render(<VoteButton bugId="b1" voteCount={3} />);
     await expectNoA11yViolations(container);
