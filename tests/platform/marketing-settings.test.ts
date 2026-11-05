@@ -11,10 +11,15 @@ const upsert = vi.hoisted(() => vi.fn());
 const auditCreate = vi.hoisted(() => vi.fn());
 const transaction = vi.hoisted(() => vi.fn());
 const requireAgent = vi.hoisted(() => vi.fn());
+const typeFindFirst = vi.hoisted(() => vi.fn());
+const typeFindMany = vi.hoisted(() => vi.fn());
+const typeCreate = vi.hoisted(() => vi.fn());
+const typeDelete = vi.hoisted(() => vi.fn());
+const bugCount = vi.hoisted(() => vi.fn());
 
 vi.mock("@/auth", () => ({ auth: vi.fn() }));
 vi.mock("next-auth", () => ({ default: vi.fn() }));
-vi.mock("next/cache", () => ({ revalidatePath }));
+vi.mock("next/cache", () => ({ revalidatePath, updateTag: vi.fn() }));
 vi.mock("@/lib/auth-helpers", () => ({ requireUser }));
 vi.mock("@/lib/agents/membership", () => ({ isTenantAdmin }));
 vi.mock("@/lib/tenant-context", () => ({
@@ -42,6 +47,8 @@ vi.mock("@/lib/prisma", () => ({
     projectAuditEvent: { create: auditCreate },
     agentAuditEvent: { create: vi.fn() },
     user: { findUnique },
+    issueType: { findFirst: typeFindFirst, findMany: typeFindMany, create: typeCreate, delete: typeDelete },
+    bug: { count: bugCount },
     $transaction: transaction,
   },
 }));
@@ -54,7 +61,105 @@ import {
 import { updateMarketingSettingsAction } from "@/app/actions/marketing-settings";
 import { GET, PATCH } from "@/app/api/v1/projects/[id]/marketing-settings/route";
 import { GET as MarketingGET, PATCH as MarketingPATCH } from "@/app/api/v1/marketing/settings/route";
+import { GET as TypesGET, POST as TypesPOST } from "@/app/api/v1/marketing/task-types/route";
+import { DELETE as TypeDELETE, PATCH as TypePATCH } from "@/app/api/v1/marketing/task-types/[id]/route";
 import { NextRequest } from "next/server";
+
+describe("Marketing task types API (M-API-7)", () => {
+  const url = "http://localhost/api/v1/marketing/task-types";
+  const headers = { authorization: "Bearer ziki_test" };
+  const post = (body: unknown) => new NextRequest(url, { method: "POST", headers, body: JSON.stringify(body) });
+  const onType = (id: string) => ({ params: Promise.resolve({ id }) });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    isTenantAdmin.mockResolvedValue(true);
+    typeFindFirst.mockResolvedValue(null);
+    requireAgent.mockResolvedValue({
+      agentId: "agent-1",
+      name: "TestAgent",
+      ownerId: "owner-1",
+      tenantId: "tenant-1",
+      level: "working",
+      ownerRole: "member",
+      burst: false,
+      keyId: "key-1",
+    });
+  });
+
+  it("lists only this workspace's marketing types, for any agent", async () => {
+    isTenantAdmin.mockResolvedValue(false);
+    typeFindMany.mockResolvedValue([{ id: "type-1", name: "Blog post", description: null, isActive: true }]);
+    const res = await TypesGET(new NextRequest(url, { headers }));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ items: [{ id: "type-1", name: "Blog post", description: null, isActive: true }] });
+    expect(typeFindMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { tenantId: "tenant-1", track: "marketing" } }),
+    );
+  });
+
+  it("creates a type on the marketing track for a workspace admin's agent", async () => {
+    typeCreate.mockResolvedValue({ id: "type-1", name: "Blog post", description: null, isActive: true });
+    const res = await TypesPOST(post({ name: "Blog post" }));
+    expect(res.status).toBe(201);
+    expect(typeCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ tenantId: "tenant-1", name: "Blog post", track: "marketing", isActive: true }),
+      }),
+    );
+  });
+
+  it("refuses every change from an agent whose owner is not a workspace admin", async () => {
+    isTenantAdmin.mockResolvedValue(false);
+    const created = await TypesPOST(post({ name: "Blog post" }));
+    const updated = await TypePATCH(
+      new NextRequest(`${url}/type-1`, { method: "PATCH", headers, body: JSON.stringify({ isActive: false }) }),
+      onType("type-1"),
+    );
+    const deleted = await TypeDELETE(new NextRequest(`${url}/type-1`, { method: "DELETE", headers }), onType("type-1"));
+    expect([created.status, updated.status, deleted.status]).toEqual([403, 403, 403]);
+    expect(typeCreate).not.toHaveBeenCalled();
+    expect(typeDelete).not.toHaveBeenCalled();
+    expect(transaction).not.toHaveBeenCalled();
+  });
+
+  it("refuses a name another type already has, in any letter case", async () => {
+    typeFindFirst.mockResolvedValue({ name: "Blog post" });
+    const res = await TypesPOST(post({ name: "BLOG POST" }));
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({ error: "name_taken" });
+    expect(typeCreate).not.toHaveBeenCalled();
+  });
+
+  it("refuses points on a type, because pay comes from each task's reward", async () => {
+    const res = await TypesPOST(post({ name: "Blog post", points: 5 }));
+    expect(res.status).toBe(422);
+    expect(typeCreate).not.toHaveBeenCalled();
+  });
+
+  it("treats a product type or another workspace's type as not found", async () => {
+    const res = await TypeDELETE(new NextRequest(`${url}/type-1`, { method: "DELETE", headers }), onType("type-1"));
+    expect(res.status).toBe(404);
+    expect(typeFindFirst).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: "type-1", tenantId: "tenant-1", track: "marketing" } }),
+    );
+    expect(typeDelete).not.toHaveBeenCalled();
+  });
+
+  it("refuses to delete a type marketing tasks use, and deletes one they don't", async () => {
+    typeFindFirst.mockResolvedValue({ id: "type-1" });
+    bugCount.mockResolvedValueOnce(2);
+    const inUse = await TypeDELETE(new NextRequest(`${url}/type-1`, { method: "DELETE", headers }), onType("type-1"));
+    expect(inUse.status).toBe(409);
+    expect(await inUse.json()).toMatchObject({ error: "type_in_use" });
+    expect(typeDelete).not.toHaveBeenCalled();
+
+    bugCount.mockResolvedValueOnce(0);
+    const unused = await TypeDELETE(new NextRequest(`${url}/type-1`, { method: "DELETE", headers }), onType("type-1"));
+    expect(unused.status).toBe(204);
+    expect(typeDelete).toHaveBeenCalledWith({ where: { id: "type-1" } });
+  });
+});
 
 describe("Marketing settings core (M-API-6)", () => {
   beforeEach(() => {

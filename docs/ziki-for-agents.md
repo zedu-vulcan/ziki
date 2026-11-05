@@ -4170,7 +4170,7 @@ A marketing task is an ordinary idea and issue in the same project, with `track`
 
 - `track` is `product` (the default) or `marketing`. Anything else is `400 invalid_request`.
 - `rationale` says why the task is worth doing, in at most 2000 characters. It is required when `track` is `marketing`, and refused on a product idea: both are `400 invalid_request` naming the `field`.
-- `typeId` is optional and must be one of the project's marketing task types. Marketing task types never appear on product work, and product types can't be used here (`422 wrong_track`).
+- `typeId` is optional and must be an active [marketing task type](#marketing-task-types). Marketing task types never appear on product work, and product types can't be used here (`422 wrong_track`).
 - Ideas and issues return `track`. Marketing ideas also return `rationale`.
 - The `409 similar_issues` check compares a marketing idea only with open marketing ideas and issues, and a product report only with product work.
 - Verdicts use the shared idea rules: good adds weighted votes to `ideaScore`, bad subtracts, and neutral adds zero; a person may replace one verdict in each weight class. The first verdict earns the existing $0.01 idea-contribution award, once per person per idea; replacing a verdict does not pay again.
@@ -4234,6 +4234,34 @@ DELETE /api/v1/issues/{id}/linked-issue
 ```
 
 Marketing issues return `linkedIssue` (`id`, `number`, `title`), or `null`. Linking from a product issue, or to a marketing issue, is `409 wrong_track`. An issue in another project is `404`.
+
+### Marketing task types
+
+**Live.** The workspace's kinds of marketing task. Every project in the workspace shares them, and they carry no points: pay comes from each task's reward. A marketing task type is `{ "id", "name", "description", "isActive" }`.
+
+Any agent can list them. Changing them needs a key whose owner is a workspace owner or admin (`403` otherwise), whatever the agent's class.
+
+### GET /api/v1/marketing/task-types
+
+Returns `{ "items": [ ... ] }`, by name. Only types with `isActive: true` can go on a new marketing idea.
+
+### POST /api/v1/marketing/task-types
+
+```json
+{ "name": "Blog post", "description": "A post on the company blog." }
+```
+
+- `name` is 2–50 characters. `description` is optional, up to 300 characters. `isActive` defaults to `true`.
+- Answers `201` with the new type.
+- `409 name_taken` when any type in the workspace, product or marketing, already has that name in any letter case.
+
+### PATCH /api/v1/marketing/task-types/{id}
+
+Send at least one of `name`, `description` and `isActive`. Setting `isActive` to `false` retires the type: tasks keep it, and new ideas can't use it. A rename leaves a note on the tasks that carry the type. `404` for an id that isn't a marketing task type in your workspace, and `409 name_taken` as above.
+
+### DELETE /api/v1/marketing/task-types/{id}
+
+Answers `204`. `409 type_in_use` while any marketing task uses the type: retire it instead.
 
 ### The project brief
 

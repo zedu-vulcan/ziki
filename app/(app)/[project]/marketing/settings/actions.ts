@@ -1,12 +1,16 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { z } from "zod";
 
-import { typeChangedSummary } from "@/lib/activity-log";
 import { IssueApiError } from "@/lib/agent-api/errors";
 import { expireTag, TAGS } from "@/lib/cache-tags";
-import { canDeleteIssueType, issueTypeInputSchema } from "@/lib/issue-types";
 import { assertMarketingSettingsAccess, updateMarketingSettings } from "@/lib/marketing/settings";
+import {
+  createMarketingTaskType,
+  deleteMarketingTaskType,
+  updateMarketingTaskType,
+} from "@/lib/marketing/task-types";
 import { marketingPath } from "@/lib/project-paths";
 import { prisma } from "@/lib/prisma";
 import { requireProject } from "@/lib/project-route";
@@ -20,9 +24,6 @@ const TYPE_NOT_FOUND = "Marketing task type not found.";
 function isRecordNotFound(err: unknown): boolean {
   return typeof err === "object" && err !== null && "code" in err && err.code === "P2025";
 }
-
-const isUniqueViolation = (err: unknown): boolean =>
-  typeof err === "object" && err !== null && "code" in err && err.code === "P2002";
 
 /**
  * The project whose marketing settings are being changed, after the access
@@ -79,25 +80,31 @@ export async function updateMarketingRevisionLimitAction(
 }
 
 /** The form fields a task type carries; no points, because pay comes from each task's reward. */
-function parseTypeInput(formData: FormData) {
-  const rawName = formData.get("name")?.toString() ?? "";
+function typeInput(formData: FormData) {
   const rawDescription = formData.get("description")?.toString() ?? "";
   const rawActive = formData.get("isActive");
-  // An unticked checkbox isn't sent, so a missing value means inactive.
-  const isActive = rawActive === "true" || rawActive === "on";
-  return issueTypeInputSchema.safeParse({
-    name: rawName,
+  return {
+    name: formData.get("name")?.toString() ?? "",
     description: rawDescription ? rawDescription : null,
-    template: null,
-    isActive,
-  });
+    // An unticked checkbox isn't sent, so a missing value means inactive.
+    isActive: rawActive === "true" || rawActive === "on",
+  };
 }
 
-/**
- * Create a marketing task type (M-UI-7 for M-API-7). The name stays unique per
- * tenant across both tracks, matching the model's `(tenantId, name)` key, so a
- * marketing type can't shadow a product type.
- */
+/** Runs a change whose rules live in `lib/marketing/`, giving a refusal back to the form. */
+async function applyChange(slug: string, change: () => Promise<unknown>): Promise<MarketingSettingsActionResult> {
+  try {
+    await change();
+  } catch (error) {
+    if (error instanceof IssueApiError) return { error: error.message };
+    if (error instanceof z.ZodError) return { error: error.issues[0]?.message ?? "Check the form and try again." };
+    throw error;
+  }
+  revalidateMarketing(slug);
+  return { ok: true };
+}
+
+/** Create a marketing task type (M-UI-7 for M-API-7). */
 export async function createMarketingIssueTypeAction(
   slug: string,
   formData: FormData,
@@ -105,39 +112,10 @@ export async function createMarketingIssueTypeAction(
   const admin = await requireSettingsAdmin(slug);
   if ("error" in admin) return admin;
 
-  const parsed = parseTypeInput(formData);
-  if (!parsed.success) {
-    return { error: parsed.error.issues[0]?.message ?? "Invalid task type." };
-  }
-  const name = parsed.data.name.trim();
-
-  const existing = await prisma.issueType.findFirst({
-    where: { tenantId: admin.tenantId, name: { equals: name, mode: "insensitive" } },
-    select: { name: true },
-  });
-  if (existing) return { error: `A type named "${existing.name}" already exists.` };
-
-  try {
-    await prisma.issueType.create({
-      data: {
-        tenantId: admin.tenantId,
-        name,
-        description: parsed.data.description,
-        track: "marketing",
-        isActive: parsed.data.isActive,
-      },
-    });
-  } catch (err: unknown) {
-    if (isUniqueViolation(err)) return { error: `A type named "${name}" already exists.` };
-    throw err;
-  }
-
-  expireTag(TAGS.issueTypes);
-  revalidateMarketing(slug);
-  return { ok: true };
+  return applyChange(slug, () => createMarketingTaskType(admin.tenantId, typeInput(formData)));
 }
 
-/** Update a marketing task type. Renames leave a note on the tasks that carry the type. */
+/** Update a marketing task type. */
 export async function updateMarketingIssueTypeAction(
   slug: string,
   id: string,
@@ -147,64 +125,7 @@ export async function updateMarketingIssueTypeAction(
   if ("error" in admin) return admin;
   if (!id || typeof id !== "string") return { error: "Invalid task type." };
 
-  const parsed = parseTypeInput(formData);
-  if (!parsed.success) {
-    return { error: parsed.error.issues[0]?.message ?? "Invalid task type." };
-  }
-  const name = parsed.data.name.trim();
-
-  const current = await prisma.issueType.findFirst({
-    where: { id, tenantId: admin.tenantId, track: "marketing" },
-  });
-  if (!current) return { error: TYPE_NOT_FOUND };
-
-  const existing = await prisma.issueType.findFirst({
-    where: { tenantId: admin.tenantId, name: { equals: name, mode: "insensitive" }, NOT: { id } },
-    select: { name: true },
-  });
-  if (existing) return { error: `Another type named "${existing.name}" already exists.` };
-
-  try {
-    await prisma.$transaction(async (tx) => {
-      const row = await tx.issueType.findFirst({ where: { id, tenantId: admin.tenantId } });
-      if (!row) return;
-
-      await tx.issueType.update({
-        where: { id },
-        data: {
-          name,
-          description: parsed.data.description,
-          isActive: parsed.data.isActive,
-        },
-      });
-
-      if (row.name !== name) {
-        const linked = await tx.bug.findMany({
-          where: { typeId: id, tenantId: admin.tenantId },
-          select: { id: true },
-        });
-        if (linked.length > 0) {
-          await tx.bugActivity.createMany({
-            data: linked.map((task) => ({
-              bugId: task.id,
-              actorId: admin.userId,
-              type: "type_changed",
-              summary: typeChangedSummary(row.name, name),
-              metadata: { field: "type", from: row.name, to: name },
-            })),
-          });
-        }
-      }
-    });
-  } catch (err: unknown) {
-    if (isUniqueViolation(err)) return { error: `Another type named "${name}" already exists.` };
-    if (isRecordNotFound(err)) return { error: TYPE_NOT_FOUND };
-    throw err;
-  }
-
-  expireTag(TAGS.issueTypes);
-  revalidateMarketing(slug);
-  return { ok: true };
+  return applyChange(slug, () => updateMarketingTaskType(admin.tenantId, id, admin.userId, typeInput(formData)));
 }
 
 /** Active types are offered when a marketing task is proposed; retired ones keep their history. */
@@ -237,10 +158,7 @@ export async function toggleMarketingIssueTypeActiveAction(
   return { ok: true };
 }
 
-/**
- * Delete a marketing task type. Types that tasks still use are refused, with
- * the reason and the thing to do instead: deactivate the type.
- */
+/** Delete a marketing task type, unless tasks still use it. */
 export async function deleteMarketingIssueTypeAction(
   slug: string,
   id: string,
@@ -249,26 +167,5 @@ export async function deleteMarketingIssueTypeAction(
   if ("error" in admin) return admin;
   if (!id || typeof id !== "string") return { error: "Invalid task type." };
 
-  const existing = await prisma.issueType.findFirst({
-    where: { id, tenantId: admin.tenantId, track: "marketing" },
-    select: { id: true },
-  });
-  if (!existing) return { error: TYPE_NOT_FOUND };
-
-  const usage = await prisma.bug.count({
-    where: { typeId: id, tenantId: admin.tenantId, track: "marketing" },
-  });
-  const check = canDeleteIssueType(usage);
-  if (!check.allowed) return { error: check.reason };
-
-  try {
-    await prisma.issueType.delete({ where: { id } });
-  } catch (err: unknown) {
-    if (isRecordNotFound(err)) return { error: TYPE_NOT_FOUND };
-    throw err;
-  }
-
-  expireTag(TAGS.issueTypes);
-  revalidateMarketing(slug);
-  return { ok: true };
+  return applyChange(slug, () => deleteMarketingTaskType(admin.tenantId, id));
 }

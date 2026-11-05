@@ -307,16 +307,18 @@ describe("the marketing settings actions (M-UI-7)", () => {
     await expect(createMarketingIssueTypeAction("web", typeForm({ name: "Email newsletter" }))).resolves.toEqual({
       ok: true,
     });
-    expect(typeCreate).toHaveBeenCalledWith({
-      data: expect.objectContaining({ tenantId: "tenant-1", name: "Email newsletter", track: "marketing" }),
-    });
+    expect(typeCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ tenantId: "tenant-1", name: "Email newsletter", track: "marketing" }),
+      }),
+    );
   });
 
   it("stores a type as inactive when the Active box is unticked", async () => {
     const form = typeForm({ name: "Email newsletter" });
     form.delete("isActive");
     await expect(createMarketingIssueTypeAction("web", form)).resolves.toEqual({ ok: true });
-    expect(typeCreate).toHaveBeenCalledWith({ data: expect.objectContaining({ isActive: false }) });
+    expect(typeCreate).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ isActive: false }) }));
   });
 
   it("refuses a name a type already uses, across tracks", async () => {

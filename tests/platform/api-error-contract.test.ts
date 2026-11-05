@@ -28,6 +28,7 @@ import { abandonVoteSchema } from "@/lib/agent-api/abandon";
 import { closeIssueSchema, closeSuggestionSchema, reopenIssueSchema, withdrawIssueSchema } from "@/lib/agent-api/close-suggestions";
 import { repairPullRequestSchema } from "@/lib/agent-api/repair-pull-request";
 import { pullRequestReportSchema } from "@/lib/validations/pull-request-report";
+import { createMarketingTaskTypeSchema, updateMarketingTaskTypeSchema } from "@/lib/marketing/task-types";
 import { deploymentSchema } from "@/lib/agent-api/deployment";
 import { archiveIdeaSchema, withdrawIdeaSchema } from "@/lib/idea-archive";
 
@@ -72,6 +73,8 @@ describe("agent API HTTP errors", () => {
  */
 const ROUTE_SCHEMAS: Record<string, z.ZodType> = {
   ziki_deliver: deliveryBodySchema,
+  ziki_create_marketing_task_type: createMarketingTaskTypeSchema,
+  ziki_update_marketing_task_type: updateMarketingTaskTypeSchema,
   ziki_create_idea: createIdeaSchema,
   ziki_set_issue_platform: platformAssignSchema,
   ziki_set_idea_platform: platformAssignSchema,

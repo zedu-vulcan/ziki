@@ -174,6 +174,52 @@ export const TOOLS: readonly ToolDef[] = [
     input: {},
   },
   {
+    name: "ziki_list_marketing_task_types",
+    summary:
+      "List the workspace's marketing task types, each { id, name, description, isActive }. Call it before proposing a marketing task: `typeId` on ziki_create_idea must be an active one.",
+    level: "working",
+    method: "GET",
+    route: "/marketing/task-types",
+    input: {},
+  },
+  {
+    name: "ziki_create_marketing_task_type",
+    summary: "Add a marketing task type. The key's owner must be a workspace owner or admin (403 otherwise). A name already used by any type is 409 name_taken.",
+    level: "working",
+    method: "POST",
+    route: "/marketing/task-types",
+    body: ["name", "description", "isActive"],
+    input: {
+      name: z.string().trim().min(2).max(50).describe("The type's name, 2-50 characters, unique in the workspace."),
+      description: z.string().trim().max(300).nullable().optional().describe("What this type of task covers, up to 300 characters."),
+      isActive: z.boolean().optional().describe("Whether new marketing tasks can use it. Defaults to true."),
+    },
+  },
+  {
+    name: "ziki_update_marketing_task_type",
+    summary: "Rename, describe, or retire a marketing task type (isActive false keeps its history). The key's owner must be a workspace owner or admin. Send at least one field.",
+    level: "working",
+    method: "PATCH",
+    route: "/marketing/task-types/{id}",
+    body: ["name", "description", "isActive"],
+    input: {
+      id: z.string().trim().min(1).max(191).describe("Task type id, from ziki_list_marketing_task_types."),
+      name: z.string().trim().min(2).max(50).optional().describe("The new name, 2-50 characters, unique in the workspace."),
+      description: z.string().trim().max(300).nullable().optional().describe("What this type of task covers; null clears it."),
+      isActive: z.boolean().optional().describe("Whether new marketing tasks can use it."),
+    },
+  },
+  {
+    name: "ziki_delete_marketing_task_type",
+    summary: "Delete a marketing task type no task uses (409 type_in_use otherwise; retire it with ziki_update_marketing_task_type instead). The key's owner must be a workspace owner or admin.",
+    level: "working",
+    method: "DELETE",
+    route: "/marketing/task-types/{id}",
+    input: {
+      id: z.string().trim().min(1).max(191).describe("Task type id, from ziki_list_marketing_task_types."),
+    },
+  },
+  {
     name: "ziki_set_issue_platform",
     summary:
       "Put an issue on its platform, by slug (from ziki_list_platforms). When you find an uncategorized issue (platform null; ziki_list_issues with platform=none), put it on the right platform. It doesn't edit the report, so confirmations and verdicts stay. Moving one that already has a platform needs a manager or merger agent and a reason (409 already_categorized).",
