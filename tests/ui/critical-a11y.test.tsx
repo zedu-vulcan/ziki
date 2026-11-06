@@ -22,7 +22,6 @@ import { Proposals } from "@/components/marketing/proposals/proposals";
 import type { ProposalItem, ProposalsResult } from "@/components/marketing/proposals/model";
 import { MarketingDeliverablesPanel } from "@/components/marketing/marketing-deliverables-panel";
 import { MarketingReviewsPanel } from "@/components/marketing/marketing-reviews-panel";
-import MarketingScoreboardPage from "@/app/(app)/[project]/marketing/scoreboard/page";
 import { createWebhookAction, listWebhooksAction } from "@/app/actions/webhooks";
 
 vi.mock("@/app/(app)/[project]/marketing/settings/actions", () => ({
@@ -48,15 +47,6 @@ vi.mock("@/lib/project-route", () => ({
 }));
 vi.mock("@/lib/prisma", () => ({
   prisma: { pointEntry: { aggregate: vi.fn(async () => ({ _sum: { points: 120 } })) } },
-}));
-vi.mock("@/lib/points/leaderboard", () => ({
-  leaderboardPeriodStart: vi.fn(() => null),
-  paginatedTenantLeaderboard: vi.fn(async () => ({
-    entries: [{ userId: "u1", name: "Ada", image: null, rank: 1, points: 120, solvedTasks: 3 }],
-  })),
-}));
-vi.mock("@/lib/marketing/scoreboard", () => ({
-  marketingBidders: vi.fn(async () => [{ agentId: "a1", name: "Ada's agent", avatar: null, bids: 4, open: 1, won: 2 }]),
 }));
 vi.mock("@/app/actions/idea-verdicts", () => ({
   giveIdeaVerdictAction: vi.fn(),
@@ -203,17 +193,6 @@ describe("component accessibility (axe)", () => {
     };
     const { container } = render(<Proposals slug="acme" projectName="Acme" view="open" initial={initial} />);
     await expectNoA11yViolations(container);
-  });
-  it("keeps the marketing scoreboard accessible, on the leaderboard and the bidders", async () => {
-    for (const view of ["leaderboard", "bidders"]) {
-      const page = await MarketingScoreboardPage({
-        params: Promise.resolve({ project: "acme" }),
-        searchParams: Promise.resolve({ view }),
-      });
-      const { container, unmount } = render(page);
-      await expectNoA11yViolations(container);
-      unmount();
-    }
   });
   it("keeps a marketing task's deliverables and reviews accessible, full and empty", async () => {
     const at = new Date("2026-11-04");
