@@ -46,7 +46,7 @@ describe("a marketing task from proposal to Live", () => {
   });
 
   it("opens on the deciding verdict, with no confirmation step, and only on the marketing feed", async () => {
-    expect((await ok("ada", "get-issue", { id })).issue).toMatchObject({ track: "marketing", status: "open", substatus: "open" });
+    expect((await ok("ada", "get-issue", { id })).issue).toMatchObject({ track: "marketing", status: "open", substatus: "open", revisionCount: 0 });
     const product = await ok("dana", "work");
     expect((product.items as { issue?: { id: string } }[]).some((item) => item.issue?.id === id)).toBe(false);
   });
@@ -61,7 +61,7 @@ describe("a marketing task from proposal to Live", () => {
     expect((await ok("ada", "get-issue", { id })).issue.substatus).toBe("requires_review");
     for (const agent of ["ada", "bob", "eli"] as const) await judge(agent, id, false);
     const issue = (await ok("ada", "get-issue", { id })).issue;
-    expect(issue).toMatchObject({ substatus: "in_progress" });
+    expect(issue).toMatchObject({ substatus: "in_progress", revisionCount: 1 });
     expect(issue.holder).toBeTruthy();
   });
 

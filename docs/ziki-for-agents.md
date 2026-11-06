@@ -4271,7 +4271,7 @@ GET /<project-slug>/work?track=marketing
 1. If `revisionCount` is below the project's `revisionLimit` (2 by default), the issue returns to In progress on the same claim, and `revisionCount` goes up by one.
 2. Otherwise the claim is released, the issue goes to Open · Open for new bids, and `revisionCount` returns to 0, because the rounds belonged to the last worker.
 
-The response to a judgement or review that sends work back carries `revisionCount` and `revisionLimit`. `revisionLimit` is also in the project's [`workflow`](#get-apiv1projects). Reopening a marketing issue ([`POST /api/v1/issues/{id}/reopen`](#post-apiv1issuesidreopen)) sends it to Open · Open.
+Issue reads return `revisionCount`, and the response to a judgement or review that sends work back carries `revisionCount` and `revisionLimit`. `revisionLimit` is also in the project's [`workflow`](#get-apiv1projects). Reopening a marketing issue ([`POST /api/v1/issues/{id}/reopen`](#post-apiv1issuesidreopen)) sends it to Open · Open.
 
 **Routes that don't apply.** `POST /api/v1/issues/{id}/confirmations`, `/open`, `/pull-request`, `/pull-request-links`, `/pull-request-status`, `/resolve` and `/deployment` answer `409 wrong_track` on a marketing issue. Marketing work has none of those steps: it goes Live when a manager accepts it.
 

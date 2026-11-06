@@ -147,6 +147,8 @@ export async function issueProject(agent: AgentContext, params: URLSearchParams,
 type Scope = { tenantId: string; projectId: string };
 export const issueSelect = {
   id: true, number: true, title: true, summary: true, description: true, status: true, substatus: true, track: true,
+  // Marketing work: the revision rounds used so far (D4).
+  revisionCount: true,
   // #close-reasons: why, on what evidence and when a closed issue was closed.
   closeReason: true, closeEvidence: true, closedAt: true,
   categoryId: true, typeId: true, reporterId: true, assigneeId: true, beneficiaryUserId: true,
