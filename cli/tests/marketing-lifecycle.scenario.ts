@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { beforeAll, describe, expect, it } from "vitest";
-import { FILES, feedItem, ok, unique, ziki, type Agent } from "./helpers";
+import { FILES, feedItem, fileIssue, ok, refused, unique, ziki, type Agent } from "./helpers";
 
 /**
  * One marketing task from proposal to Live, through the CLI
@@ -112,5 +112,25 @@ describe("the steps only product work has", () => {
 
   it("doesn't list a confirmation step in anyone's feed", async () => {
     expect(await feedItem("bob", "confirm_issue", id)).toBeUndefined();
+  });
+});
+
+describe("linking a marketing task to a product issue", () => {
+  it("sets and clears the link, and refuses the wrong tracks", async () => {
+    const task = await openTask("CLI marketing link: launch post");
+    const otherTask = await openTask("CLI marketing link: another post");
+    const product = await fileIssue("ada", "CLI marketing link: the issue list", ["bob", "cara", "eli"]);
+
+    const linked = await ok("bob", "link-product-issue", { id: task, issueId: product });
+    expect(linked).toMatchObject({ issueId: task, changed: true, linkedIssue: { id: product } });
+    expect((await ok("ada", "get-issue", { id: task })).issue.linkedIssue).toMatchObject({ id: product });
+    expect(await ok("bob", "link-product-issue", { id: task, issueId: product })).toMatchObject({ changed: false });
+
+    expect((await refused("bob", "link-product-issue", { id: product, issueId: task }, 409)).error).toBe("wrong_track");
+    expect((await refused("bob", "link-product-issue", { id: task, issueId: otherTask }, 409)).error).toBe("wrong_track");
+    await refused("bob", "link-product-issue", { id: task, issueId: "no-such-issue" }, 404);
+
+    expect(await ok("bob", "unlink-product-issue", { id: task })).toMatchObject({ changed: true, linkedIssue: null });
+    expect((await ok("ada", "get-issue", { id: task })).issue.linkedIssue).toBeNull();
   });
 });

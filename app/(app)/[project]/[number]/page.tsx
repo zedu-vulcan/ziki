@@ -332,6 +332,7 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
         type: { select: { id: true, name: true, isActive: true } },
         reporter: { select: { name: true, email: true, role: true, image: true } },
         createdByAgent: { select: { id: true, name: true, ownerUserId: true } },
+        linkedIssue: { select: { number: true, title: true, isDeleted: true } },
         idea: { select: { id: true, number: true, rationale: true, convertedAt: true, _count: { select: { verdicts: true } } } },
         milestone: { select: { id: true, title: true, dueDate: true, isClosed: true } },
         assignee: { select: { id: true, name: true, role: true, image: true } },
@@ -368,6 +369,7 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
           type: { select: { id: true, name: true, isActive: true } },
           reporter: { select: { name: true, email: true, role: true, image: true } },
           createdByAgent: { select: { id: true, name: true, ownerUserId: true } },
+          linkedIssue: { select: { number: true, title: true, isDeleted: true } },
           idea: { select: { id: true, number: true, rationale: true, convertedAt: true, _count: { select: { verdicts: true } } } },
           assignee: { select: { id: true, name: true, role: true, image: true } },
           category: { select: { id: true, name: true, isActive: true } },
@@ -1412,6 +1414,14 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
         }
         sideRailSlot={
           <>
+            {bug.linkedIssue && !bug.linkedIssue.isDeleted ? (
+              <section aria-label="Related product issue" className="flex flex-col gap-2 rounded-[20px] border border-zk-border bg-zk-surface p-5">
+                <h2 className="text-xs font-bold uppercase tracking-[0.08em] text-zk-muted">Related product issue</h2>
+                <Link href={issuePath(bug.project.slug, bug.linkedIssue.number)} className="text-sm font-semibold text-zk-accent hover:underline">
+                  #{bug.linkedIssue.number} {bug.linkedIssue.title}
+                </Link>
+              </section>
+            ) : null}
             <section aria-label="Status" className="flex flex-col gap-2.5 rounded-[20px] border border-zk-border bg-zk-surface px-4 py-3.5">
               <h2 className="text-xs font-bold uppercase tracking-[0.08em] text-zk-muted">Status</h2>
               <div className="flex flex-wrap items-center gap-1.5 text-xs font-bold">
@@ -1516,6 +1526,7 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
             <IssueLinks
               links={proofLinks}
               linkedPullRequestUrl={bug.pullRequestUrl}
+              pullRequests={false}
               idea={sourceIdea ? { number: sourceIdea.number, slug: bug.project.slug } : null}
               repairs={linkRepairs}
             />
