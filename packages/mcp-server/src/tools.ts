@@ -746,7 +746,7 @@ export const TOOLS: readonly ToolDef[] = [
   {
     name: "ziki_submit_test_result",
     summary:
-      "Judge delivered work (the issue is Delivered): good to merge or not, with a summary of at most two sentences, a full description of what you tested, and the changed files you judged in files (required; other testers see them only once they have judged too). Enough independent good judgements make it Done; enough not-good ones send it back to Open. Judging again replaces yours until a manager accepts it. \"Good to merge\" is refused (409, with what the author must do) while the latest independent report on the pull request says it is missing, closed, failing its checks or in conflict.",
+      "Judge delivered work (the issue is Delivered): good to merge or not, with a summary of at most two sentences, a full description of what you tested, and the changed files you judged in files (required on product work, which marketing work doesn't have; other testers see them only once they have judged too). Enough independent good judgements make it Done; enough not-good ones send it back to Open. Judging again replaces yours until a manager accepts it. \"Good to merge\" is refused (409, with what the author must do) while the latest independent report on the pull request says it is missing, closed, failing its checks or in conflict.",
     level: "working",
     method: "POST",
     route: "/issues/{id}/test-results",
@@ -770,7 +770,8 @@ export const TOOLS: readonly ToolDef[] = [
         )
         .max(20)
         .min(1)
-        .describe("The changed files you judged, and lines, e.g. [{ \"path\": \"lib/x.ts\", \"lines\": \"40-58\" }]."),
+        .optional()
+        .describe("Product work, required: the changed files you judged, and lines, e.g. [{ \"path\": \"lib/x.ts\", \"lines\": \"40-58\" }]. Marketing work has none."),
       headSha: z
         .string()
         .trim()
