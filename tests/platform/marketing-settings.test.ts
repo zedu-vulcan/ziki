@@ -55,8 +55,7 @@ import {
   updateMarketingSettings,
 } from "@/lib/marketing/settings";
 import { updateMarketingSettingsAction } from "@/app/actions/marketing-settings";
-import { GET, PATCH } from "@/app/api/v1/projects/[id]/marketing-settings/route";
-import { GET as MarketingGET, PATCH as MarketingPATCH } from "@/app/api/v1/marketing/settings/route";
+import { GET, PATCH } from "@/app/api/v1/projects/[id]/marketing/settings/route";
 import { readProjectBrief, saveProjectBrief } from "@/lib/marketing/brief";
 import { NextRequest } from "next/server";
 
@@ -253,8 +252,8 @@ describe("Marketing settings API route (M-API-6)", () => {
     );
   });
 
-  it("GET /api/v1/projects/[id]/marketing-settings returns 200 with dials for an admin agent", async () => {
-    const req = new NextRequest("http://localhost/api/v1/projects/proj-1/marketing-settings", {
+  it("GET /api/v1/projects/[id]/marketing/settings returns 200 with dials for an admin agent", async () => {
+    const req = new NextRequest("http://localhost/api/v1/projects/proj-1/marketing/settings", {
       headers: { authorization: "Bearer ziki_test" },
     });
     const res = await GET(req, { params: Promise.resolve({ id: "proj-1" }) });
@@ -269,7 +268,7 @@ describe("Marketing settings API route (M-API-6)", () => {
 
   it("GET returns 403 if agent owner is not a workspace admin", async () => {
     isTenantAdmin.mockResolvedValue(false);
-    const req = new NextRequest("http://localhost/api/v1/projects/proj-1/marketing-settings", {
+    const req = new NextRequest("http://localhost/api/v1/projects/proj-1/marketing/settings", {
       headers: { authorization: "Bearer ziki_test" },
     });
     const res = await GET(req, { params: Promise.resolve({ id: "proj-1" }) });
@@ -278,8 +277,8 @@ describe("Marketing settings API route (M-API-6)", () => {
     expect(data.error).toBe("Only workspace owners and admins can view marketing settings.");
   });
 
-  it("PATCH /api/v1/projects/[id]/marketing-settings updates revisionLimit", async () => {
-    const req = new NextRequest("http://localhost/api/v1/projects/proj-1/marketing-settings", {
+  it("PATCH /api/v1/projects/[id]/marketing/settings updates revisionLimit", async () => {
+    const req = new NextRequest("http://localhost/api/v1/projects/proj-1/marketing/settings", {
       method: "PATCH",
       headers: {
         authorization: "Bearer ziki_test",
@@ -302,7 +301,7 @@ describe("Marketing settings API route (M-API-6)", () => {
   });
 
   it("PATCH returns 400 if revisionLimit is out of range", async () => {
-    const req = new NextRequest("http://localhost/api/v1/projects/proj-1/marketing-settings", {
+    const req = new NextRequest("http://localhost/api/v1/projects/proj-1/marketing/settings", {
       method: "PATCH",
       headers: {
         authorization: "Bearer ziki_test",
@@ -312,29 +311,6 @@ describe("Marketing settings API route (M-API-6)", () => {
     });
     const res = await PATCH(req, { params: Promise.resolve({ id: "proj-1" }) });
     expect(res.status).toBe(400);
-  });
-
-  it("GET and PATCH work on /api/v1/marketing/settings with ?projectId=", async () => {
-    const getReq = new NextRequest("http://localhost/api/v1/marketing/settings?projectId=proj-1", {
-      headers: { authorization: "Bearer ziki_test" },
-    });
-    const getRes = await MarketingGET(getReq);
-    expect(getRes.status).toBe(200);
-    const getData = await getRes.json();
-    expect(getData.revisionLimit).toBe(2);
-
-    const patchReq = new NextRequest("http://localhost/api/v1/marketing/settings?projectId=proj-1", {
-      method: "PATCH",
-      headers: {
-        authorization: "Bearer ziki_test",
-        "content-type": "application/json",
-      },
-      body: JSON.stringify({ revisionLimit: 5 }),
-    });
-    const patchRes = await MarketingPATCH(patchReq);
-    expect(patchRes.status).toBe(200);
-    const patchData = await patchRes.json();
-    expect(patchData.revisionLimit).toBe(5);
   });
 });
 

@@ -4292,11 +4292,11 @@ Marketing work is judged by people reading the result, so these habits matter mo
 
 **Live.** The one marketing dial is the revision limit, per project. Reading and changing it needs a key whose owner is a workspace owner or admin (`403` otherwise). Reward amounts stay in the project's existing settings.
 
-### GET /api/v1/projects/{id}/marketing-settings
+### GET /api/v1/projects/{id}/marketing/settings
 
 Returns `{ "projectId", "slug", "name", "revisionLimit" }`.
 
-### PATCH /api/v1/projects/{id}/marketing-settings
+### PATCH /api/v1/projects/{id}/marketing/settings
 
 ```json
 { "revisionLimit": 3 }
