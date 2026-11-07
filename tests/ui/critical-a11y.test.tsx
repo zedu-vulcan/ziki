@@ -22,6 +22,9 @@ import { RejectedIdeas } from "@/components/marketing/rejected-ideas/rejected-id
 import type { RejectedIdea } from "@/components/marketing/rejected-ideas/model";
 import { MarketingDeliverablesPanel } from "@/components/marketing/marketing-deliverables-panel";
 import { MarketingReviewsPanel } from "@/components/marketing/marketing-reviews-panel";
+import { FindingsBoard } from "@/components/security/findings-board";
+import { ReportFindingForm } from "@/components/security/report-finding-form";
+import { sampleFindings } from "@/app/(app)/security/sample-findings";
 import { createWebhookAction, listWebhooksAction } from "@/app/actions/webhooks";
 import { OnScreenGuide } from "@/components/support-guide/on-screen-guide";
 import { getPageGuidance, searchSupportAnswers } from "@/components/support-guide/support-guide-data";
@@ -175,6 +178,25 @@ describe("component accessibility (axe)", () => {
       pagination: { page: 1, totalPages: 1, totalCount: 1, from: 1, to: 1 },
     }} />);
     await expectNoA11yViolations(container);
+  });
+
+  it("keeps the Security preview board and non-submitting report form accessible", async () => {
+    const board = render(<FindingsBoard findings={sampleFindings} stage="reported" />);
+    await expectNoA11yViolations(board.container);
+    expect(screen.getByRole("link", { name: /Reported/ })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+    board.unmount();
+
+    const form = render(<ReportFindingForm />);
+    expect(
+      screen.getByRole("button", { name: "Reporting isn't open yet" }),
+    ).toBeDisabled();
+    await expectNoA11yViolations(form.container);
+    fireEvent.blur(screen.getByRole("textbox", { name: "Title" }));
+    expect(await screen.findByText("Enter at least 3 characters.")).toBeInTheDocument();
+    await expectNoA11yViolations(form.container);
   });
   it("keeps rejected marketing ideas and their verdicts accessible", async () => {
     const item: RejectedIdea = {

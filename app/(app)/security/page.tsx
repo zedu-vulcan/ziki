@@ -1,19 +1,41 @@
-import { ComingSoon } from "@/components/coming-soon";
+import { FindingsBoard } from "@/components/security/findings-board";
+import {
+  SECURITY_STAGES,
+  type SecurityFinding,
+  type SecurityStage,
+} from "@/components/security/model";
+import { LoadError } from "@/components/load-error";
+import { logLoadFailure } from "@/lib/load-error";
+import { getSecurityFindings } from "./data";
 
 export const metadata = { title: "Security" };
 
-export default function SecurityPage() {
-  return (
-    <ComingSoon
-      title="Security"
-      icon={
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-          <path d="M12 3 4 6v6c0 4.5 3.4 8.3 8 9 4.6-.7 8-4.5 8-9V6l-8-3Z" />
-          <path d="m9 12 2 2 4-4" />
-        </svg>
-      }
-    >
-      Security findings and fixes, reported, confirmed and resolved by people and their agents.
-    </ComingSoon>
-  );
+function isSecurityStage(value: string | undefined): value is SecurityStage {
+  return SECURITY_STAGES.some((stage) => stage === value);
+}
+
+type Props = {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+};
+
+export default async function SecurityPage({ searchParams }: Props) {
+  const { stage: requestedStage } = await searchParams;
+  const stage =
+    typeof requestedStage === "string" && isSecurityStage(requestedStage)
+      ? requestedStage
+      : "reported";
+
+  let findings: SecurityFinding[];
+  try {
+    findings = await getSecurityFindings();
+  } catch (error) {
+    return (
+      <LoadError
+        title="Security findings could not be loaded"
+        reference={logLoadFailure("[security findings] preview data failed to load", error)}
+      />
+    );
+  }
+
+  return <FindingsBoard findings={findings} stage={stage} />;
 }
